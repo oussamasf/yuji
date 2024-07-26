@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"strings"
 )
 
 func main() {
@@ -35,11 +36,17 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	fmt.Printf("Received: %s\n", string(buffer))
+	words := strings.Fields(strings.ToLower(string(buffer)))
 
-	_, err = conn.Write(buffer)
-	if err != nil {
+	switch words[0] {
+	case "echo":
+		_, err = conn.Write([]byte(strings.Join(words[1:], " ")))
+		if err != nil {
+			fmt.Println("Error writing:", err)
+			return
+		}
+	default:
 		fmt.Println("Error writing:", err)
-		return
 	}
+
 }
