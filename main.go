@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/oussamasf/yuji/utils"
 )
 
 func main() {
@@ -36,11 +38,21 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
-	words := strings.Fields(strings.ToLower(string(buffer)))
+	data := string(buffer)
 
-	switch words[0] {
+	data = strings.TrimSpace(data)
+
+	commands, _ := utils.Parser(data)
+
+	switch strings.ToLower(commands.Name) {
 	case "echo":
-		_, err = conn.Write([]byte(strings.Join(words[1:], " ")))
+		fmt.Printf("Command: %s\nArgs: %v\n", commands.Name, commands.Args)
+		if len(commands.Args) > 2 {
+			fmt.Println("INVALID_NUMBER_OF_ARGUMENTS")
+			return
+		}
+
+		_, err = conn.Write([]byte(commands.Args[0] + "\n"))
 		if err != nil {
 			fmt.Println("Error writing:", err)
 			return
