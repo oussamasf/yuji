@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -13,13 +14,16 @@ import (
 )
 
 func main() {
-	listener, err := net.Listen("tcp", ":8080")
+	port := flag.String("p", "8080", "port")
+	flag.Parse()
+
+	listener, err := net.Listen("tcp", ":"+*port)
 	if err != nil {
 		fmt.Println("Error listening:", err)
 		return
 	}
 	defer listener.Close()
-	fmt.Println("Server is listening on :8080")
+	fmt.Println("Server is listening on " + ":" + *port)
 	redisMap := make(map[string]string)
 
 	for {
