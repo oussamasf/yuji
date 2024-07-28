@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/oussamasf/yuji/utils"
 )
@@ -54,12 +56,36 @@ func handleConnection(conn net.Conn, cache map[string]string) {
 			writeResponse(conn, commands.Args[0])
 
 		case "set":
-			if len(commands.Args) > 2 {
+			fmt.Println(commands.Args)
+
+			if len(commands.Args) == 2 {
+				cache[commands.Args[0]] = commands.Args[1]
+				writeResponse(conn, "OK")
+
+			} else if len(commands.Args) == 4 {
+
+				if strings.ToLower(commands.Args[2]) == "px" {
+					cache[commands.Args[0]] = commands.Args[1]
+
+					parsedInt, err := strconv.Atoi(commands.Args[3])
+					if err != nil {
+						writeResponse(conn, "ERROR: INVALID_PX")
+
+					}
+
+					time.AfterFunc(time.Duration(parsedInt)*time.Millisecond, func() {
+						delete(cache, commands.Args[0])
+					})
+					writeResponse(conn, "OK")
+
+				} else {
+					writeResponse(conn, "ERROR: INVALID_ARGUMENT")
+					return
+				}
+			} else {
 				writeResponse(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 				return
 			}
-			cache[commands.Args[0]] = commands.Args[1]
-			writeResponse(conn, "OK")
 
 		case "get":
 			fmt.Println(cache)
