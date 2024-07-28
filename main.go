@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 
@@ -31,55 +33,59 @@ func main() {
 
 func handleConnection(conn net.Conn, cache map[string]string) {
 	defer conn.Close()
-
-	buffer := make([]byte, 1024)
-	_, err := conn.Read(buffer)
-	if err != nil {
-		fmt.Println("Error reading:", err)
-		return
-	}
-
-	data := string(buffer)
-
-	data = strings.TrimSpace(data)
-
-	commands, _ := utils.Parser(data)
-	switch strings.ToLower(commands.Name) {
-	case "echo":
-		if len(commands.Args) > 2 {
-			fmt.Println("INVALID_NUMBER_OF_ARGUMENTS")
-			return
-		}
-
-		_, err = conn.Write([]byte(commands.Args[0] + "\n"))
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		data := scanner.Text()
+		commands, err := utils.Parser(data)
 		if err != nil {
-			fmt.Println("Error writing:", err)
-			return
-		}
-	case "set":
-
-		if len(commands.Args) != 3 {
-			fmt.Println("INVALID_NUMBER_OF_ARGUMENTS")
-			return
-		}
-		cache[commands.Args[0]] = commands.Args[1]
-		fmt.Println(cache)
-
-	case "get":
-		fmt.Println(cache)
-
-		if len(commands.Args) != 2 {
-			fmt.Println("INVALID_NUMBER_OF_ARGUMENTS")
-			return
-		}
-		_, err = conn.Write([]byte(cache[commands.Args[0]] + "\n"))
-		if err != nil {
-			fmt.Println("Error writing:", err)
-			return
+			log.Printf("Error parsing command: %v", err)
+			writeResponse(conn, "ERROR: Invalid command")
+			continue
 		}
 
-	default:
-		fmt.Println("Error writing:", err)
+		switch strings.ToLower(commands.Name) {
+
+		case "echo":
+			if len(commands.Args) > 2 {
+				writeResponse(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				return
+			}
+
+			writeResponse(conn, commands.Args[0])
+
+		case "set":
+			if len(commands.Args) > 2 {
+				writeResponse(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				return
+			}
+			cache[commands.Args[0]] = commands.Args[1]
+			writeResponse(conn, "OK")
+
+		case "get":
+			fmt.Println(cache)
+
+			if len(commands.Args) > 1 {
+				writeResponse(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				return
+			}
+
+			result := cache[commands.Args[0]]
+
+			if result == "" {
+				writeResponse(conn, "NULL")
+			}
+
+			writeResponse(conn, cache[commands.Args[0]])
+
+		default:
+			writeResponse(conn, "ERROR: Unknown command")
+			return
+		}
 	}
+}
 
+func writeResponse(conn net.Conn, message string) {
+	if _, err := conn.Write([]byte(message + "\n")); err != nil {
+		log.Printf("Error writing response: %v", err)
+	}
 }

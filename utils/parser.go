@@ -17,6 +17,8 @@ func Parser(input string) (*Command, error) {
 	var inQuotes bool
 	var escapeNext bool
 
+	input = strings.TrimSpace(input)
+
 	for _, r := range input {
 		if escapeNext {
 			current.WriteRune(r)
@@ -28,18 +30,13 @@ func Parser(input string) (*Command, error) {
 		case r == '\\':
 			escapeNext = true
 		case r == '"' || r == '\'':
-			if inQuotes {
-				inQuotes = false
-				parts = append(parts, current.String())
-				current.Reset()
-			} else {
-				inQuotes = true
-			}
+			inQuotes = !inQuotes
+			current.WriteRune(r)
 		case unicode.IsSpace(r):
 			if inQuotes {
 				current.WriteRune(r)
 			} else if current.Len() > 0 {
-				parts = append(parts, current.String())
+				parts = append(parts, strings.Trim(current.String(), "\"'"))
 				current.Reset()
 			}
 		default:
@@ -48,7 +45,7 @@ func Parser(input string) (*Command, error) {
 	}
 
 	if current.Len() > 0 {
-		parts = append(parts, current.String())
+		parts = append(parts, strings.Trim(current.String(), "\"'"))
 	}
 
 	if len(parts) == 0 {
