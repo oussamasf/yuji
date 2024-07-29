@@ -10,9 +10,13 @@ import (
 	"time"
 )
 
-func HandleConnection(conn net.Conn, cache map[string]string) {
+func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
+	var infoRes string = "role:master"
+
 	defer conn.Close()
+
 	scanner := bufio.NewScanner(conn)
+
 	for scanner.Scan() {
 		data := scanner.Text()
 		commands, err := Parser(data)
@@ -25,7 +29,10 @@ func HandleConnection(conn net.Conn, cache map[string]string) {
 		switch strings.ToLower(commands.Name) {
 
 		case "info":
-			writeResponse(conn, NewBulkString("role:master"))
+			if isSlave {
+				infoRes = "role:slave"
+			}
+			writeResponse(conn, NewBulkString(infoRes))
 
 		case "echo":
 			if len(commands.Args) > 2 {
