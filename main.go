@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 
@@ -20,7 +21,7 @@ func main() {
 
 	if *replicaType != "" {
 		r = strings.TrimSpace(*replicaType)
-		RSlice = strings.Split(r, " ")
+		RSlice = strings.Split(r, ":")
 
 		if len(RSlice) != 2 {
 			fmt.Println("INVALID_REPLICA_ARGUMENT")
@@ -32,6 +33,8 @@ func main() {
 			return
 		}
 		isSlave = true
+
+		go SendHandshake(RSlice[0], RSlice[1])
 	}
 
 	listener, err := net.Listen("tcp", ":"+*port)
@@ -41,6 +44,7 @@ func main() {
 	}
 	defer listener.Close()
 	fmt.Println("Server is listening on " + ":" + *port)
+
 	redisMap := make(map[string]string)
 
 	for {
@@ -52,4 +56,13 @@ func main() {
 
 		go utils.HandleConnection(conn, redisMap, isSlave)
 	}
+}
+
+func SendHandshake(masterHost string, masterPort string) {
+	address := fmt.Sprintf("%s:%s", masterHost, masterPort)
+	m, err := net.Dial("tcp", address)
+	if err != nil {
+		log.Fatalln("couldn't connect to master at ", address)
+	}
+	m.Write([]byte("ping"))
 }
