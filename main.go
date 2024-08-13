@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
@@ -65,4 +66,20 @@ func SendHandshake(masterHost string, masterPort string) {
 		log.Fatalln("couldn't connect to master at ", address)
 	}
 	m.Write([]byte("ping"))
+
+	buffer := make([]byte, 1028)
+
+	n, err := m.Read(buffer)
+	if err != nil {
+		log.Fatalln("couldn't receive the pong")
+	}
+	trimmedBuffer := bytes.Trim(buffer[:n], "\x00\r\n")
+	response := string(trimmedBuffer)
+	fmt.Printf("Response: %q\n", response)
+
+	if strings.ToLower(response) == "pong" {
+		fmt.Println("Received expected 'pong' response")
+	} else {
+		fmt.Println("Received unexpected response")
+	}
 }
