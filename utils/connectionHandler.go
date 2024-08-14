@@ -81,10 +81,9 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 			}
 			writeRESPBulkString(conn, msg)
 
-			// case "ping":
-			// 	log.Printf("PONG")
-
-			// 	writeResponse(conn, "PONG")
+		case "ping":
+			log.Printf("PONG")
+			writeRESPSimpleString(conn, "PONG")
 
 			// case "set":
 			// 	fmt.Println(commands.Args)
@@ -139,12 +138,12 @@ func writeRESPBulkString(conn net.Conn, message string) {
 	}
 }
 
-// func writeRESPSimpleString(conn net.Conn, message string) {
-// 	response := fmt.Sprintf("+%s\r\n", message)
-// 	if _, err := conn.Write([]byte(response)); err != nil {
-// 		log.Printf("Error writing response: %v", err)
-// 	}
-// }
+func writeRESPSimpleString(conn net.Conn, message string) {
+	response := fmt.Sprintf("+%s\r\n", message)
+	if _, err := conn.Write([]byte(response)); err != nil {
+		log.Printf("Error writing response: %v", err)
+	}
+}
 
 func writeRESPError(conn net.Conn, message string) {
 	response := fmt.Sprintf("-%s\r\n", message)
