@@ -2,19 +2,12 @@ package utils
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"net"
 	"strconv"
 	"strings"
 	"time"
 )
-
-func writeResponse(conn net.Conn, message string) {
-	if _, err := conn.Write([]byte(message + "\n")); err != nil {
-		log.Printf("Error writing response: %v", err)
-	}
-}
 
 func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 	infoRes := []string{"role:master", "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", "master_repl_offset:0"}
@@ -26,80 +19,122 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 		n, err := conn.Read(data)
 		if err != nil {
 			log.Printf("Error parsing command: %v", err)
-			writeResponse(conn, "ERROR: Invalid command")
+			WriteResponse(conn, "ERROR: Invalid command")
 			continue
 		}
 
 		trimmedData := bytes.TrimRight(data[:n], "\x00")
-		commands, err := Parser(string(trimmedData))
+		formattedInput := strings.ReplaceAll(string(trimmedData), "\\r\\n", "\r\n")
+		commands, err := Parser(formattedInput)
 
 		if err != nil {
 			log.Printf("Error parsing command: %v", err)
-			writeResponse(conn, "ERROR: Invalid command")
+			WriteRESPError(conn, "ERROR: Invalid command")
 			continue
 		}
 
-		switch strings.ToLower(commands.Name) {
+		if commands.Type != '*' {
+			WriteRESPError(conn, "ERROR: Expected array for command")
+			continue
+		}
+
+		args, ok := commands.Value.([]RESPValue)
+		if !ok {
+			WriteRESPError(conn, "ERROR: Invalid command format")
+			continue
+		}
+
+		if len(args) < 1 {
+			WriteRESPError(conn, "ERROR: No command given")
+			continue
+		}
+
+		cmdName, ok := args[0].Value.(string)
+		if !ok {
+			WriteRESPError(conn, "ERROR: Invalid command name")
+			continue
+		}
+
+		switch strings.ToLower(cmdName) {
 		case "info":
 			if isSlave {
 				infoRes = []string{"role:slave"}
 			}
-			writeResponse(conn, NewBulkString(infoRes))
+			WriteResponse(conn, NewBulkString(infoRes))
 
 		case "echo":
-			if len(commands.Args) > 1 {
-				writeResponse(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
-				return
+			if len(args) != 2 {
+				WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				continue
 			}
-			writeResponse(conn, commands.Args[0])
+			msg, ok := args[1].Value.(string)
+			if !ok {
+				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+			WriteRESPBulkString(conn, msg)
 
 		case "ping":
 			log.Printf("PONG")
-
-			writeResponse(conn, "PONG")
+			WriteRESPSimpleString(conn, "PONG")
 
 		case "set":
-			fmt.Println(commands.Args)
-			if len(commands.Args) == 2 {
-				cache[commands.Args[0]] = commands.Args[1]
-				writeResponse(conn, "OK")
-			} else if len(commands.Args) == 4 {
-				if strings.ToLower(commands.Args[2]) == "px" {
-					cache[commands.Args[0]] = commands.Args[1]
-					parsedInt, err := strconv.Atoi(commands.Args[3])
+			if len(args) < 3 {
+				WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				continue
+			}
+			key, ok := args[1].Value.(string)
+			if !ok {
+				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+			value, ok := args[2].Value.(string)
+			if !ok {
+				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+			cache[key] = value
+
+			if len(args) > 4 {
+
+				if strings.ToLower(args[3].Value.(string)) == "px" {
+					expiry, err := strconv.Atoi(args[4].Value.(string))
 					if err != nil {
-						writeResponse(conn, "ERROR: INVALID_PX")
+						WriteRESPError(conn, "ERROR: INVALID_PX")
 						continue
 					}
-					time.AfterFunc(time.Duration(parsedInt)*time.Millisecond, func() {
-						delete(cache, commands.Args[0])
+					time.AfterFunc(time.Duration(expiry)*time.Millisecond, func() {
+						delete(cache, key)
 					})
-					writeResponse(conn, "OK")
 				} else {
-					writeResponse(conn, "ERROR: INVALID_ARGUMENT")
-					return
+					WriteRESPError(conn, "ERROR: INVALID_ARGUMENT")
+					continue
 				}
-			} else {
-				writeResponse(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
-				return
 			}
+			WriteRESPSimpleString(conn, "OK")
 
 		case "get":
-			fmt.Println(cache)
-			if len(commands.Args) > 1 {
-				writeResponse(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
-				return
+			if len(args) != 2 {
+				WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				continue
 			}
-			result := cache[commands.Args[0]]
+			key, ok := args[1].Value.(string)
+			if !ok {
+				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+			result := cache[key]
 			if result == "" {
-				writeResponse(conn, "NULL")
+				WriteRESPBulkString(conn, "")
 			} else {
-				writeResponse(conn, result)
+				WriteRESPBulkString(conn, result)
 			}
 
 		default:
-			writeResponse(conn, "ERROR: Unknown command")
+			WriteResponse(conn, "ERROR: Unknown command")
 			return
 		}
 	}
 }
+
+// SET
