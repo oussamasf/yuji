@@ -74,6 +74,10 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 			}
 			WriteRESPBulkString(conn, msg)
 
+		case "replconf":
+			log.Printf("replconf")
+			WriteRESPSimpleString(conn, "OK")
+
 		case "ping":
 			log.Printf("PONG")
 			WriteRESPSimpleString(conn, "PONG")

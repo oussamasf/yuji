@@ -79,10 +79,10 @@ func SendHandshake(masterHost string, masterPort string, replicaPort string) {
 
 	if strings.ToLower(response) == "+pong" {
 		replConfig := fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%s\r\n", replicaPort)
-		log.Println(replConfig)
 
 		m.Write([]byte(replConfig))
 		m.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"))
+		m.Write([]byte("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"))
 	} else {
 		fmt.Println("Received unexpected response")
 	}
