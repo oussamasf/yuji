@@ -94,7 +94,9 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 				continue
 			}
 			cache[key] = value
-			if len(args) == 4 {
+
+			if len(args) > 4 {
+
 				if strings.ToLower(args[3].Value.(string)) == "px" {
 					expiry, err := strconv.Atoi(args[4].Value.(string))
 					if err != nil {
@@ -136,4 +138,3 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 }
 
 // SET
-// *3\r\n$8\r\nSET\r\n$14\r\nport\r\n$4\r\n6380\r\n
