@@ -65,7 +65,7 @@ func SendHandshake(masterHost string, masterPort string) {
 	if err != nil {
 		log.Fatalln("couldn't connect to master at ", address)
 	}
-	m.Write([]byte("ping"))
+	m.Write([]byte("*1\r\n$4\r\nping\r\n"))
 
 	buffer := make([]byte, 1028)
 
@@ -77,8 +77,9 @@ func SendHandshake(masterHost string, masterPort string) {
 	response := string(trimmedBuffer)
 	fmt.Printf("Response: %q\n", response)
 
-	if strings.ToLower(response) == "pong" {
-		fmt.Println("Received expected 'pong' response")
+	if strings.ToLower(response) == "+pong" {
+		m.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n6380\r\n"))
+		m.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"))
 	} else {
 		fmt.Println("Received unexpected response")
 	}
