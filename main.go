@@ -9,6 +9,8 @@ import (
 	"github.com/oussamasf/yuji/utils"
 )
 
+var redisMap = make(map[string]string)
+
 func main() {
 	var r string
 	var RSlice []string
@@ -33,7 +35,7 @@ func main() {
 		}
 		isSlave = true
 
-		go utils.ReplicaConnection(RSlice[0], RSlice[1], *port)
+		go utils.HandleReplicaConnection(RSlice[0], RSlice[1], *port, redisMap)
 	}
 
 	listener, err := net.Listen("tcp", ":"+*port)
@@ -43,8 +45,6 @@ func main() {
 	}
 	defer listener.Close()
 	fmt.Println("Server is listening on " + ":" + *port)
-
-	redisMap := make(map[string]string)
 
 	for {
 		conn, err := listener.Accept()

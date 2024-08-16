@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strconv"
@@ -10,7 +11,7 @@ import (
 	"time"
 )
 
-var replicasPorts = []string{}
+var replicasConnections = []net.Conn{}
 
 func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 	infoRes := []string{"role:master", "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", "master_repl_offset:0"}
@@ -21,14 +22,17 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 	for {
 		n, err := conn.Read(data)
 		if err != nil {
-			log.Printf("Error parsing command: %v", err)
-			WriteResponse(conn, "ERROR: Invalid command")
-			continue
+			if err == io.EOF {
+				log.Fatalln("Connection closed")
+				break
+			}
+			log.Printf("Error reading: %v", err)
+			break
 		}
-
 		trimmedData := bytes.TrimRight(data[:n], "\x00")
 		formattedInput := strings.ReplaceAll(string(trimmedData), "\\r\\n", "\r\n")
 		commands, err := Parser(formattedInput)
+		log.Printf("received %v", commands)
 
 		if err != nil {
 			log.Printf("Error parsing command: %v", err)
@@ -78,11 +82,9 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 			WriteRESPBulkString(conn, msg)
 
 		case "replconf":
-			replicasPorts = append(replicasPorts, args[2].Value.(string))
 			WriteRESPSimpleString(conn, "OK")
 
 		case "psync":
-			log.Printf("replconf")
 			hardCoddedId := "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
 
 			WriteRESPSimpleString(conn, fmt.Sprintf("FULLRESYNC %s 0", hardCoddedId))
@@ -91,8 +93,11 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 			emptyRDB := "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 			WriteRESPBulkString(conn, emptyRDB)
 
+			replicasConnections = append(replicasConnections, conn)
+
+			log.Println("replconf", replicasConnections)
+
 		case "ping":
-			log.Printf("PONG")
 			WriteRESPSimpleString(conn, "PONG")
 
 		case "set":
@@ -131,8 +136,7 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 			WriteRESPSimpleString(conn, "OK")
 
 			if !isSlave {
-				log.Println("replconf", replicasPorts)
-				WriteCommandSync(replicasPorts, trimmedData)
+				WriteCommandSync(replicasConnections, trimmedData)
 			}
 
 		case "get":
