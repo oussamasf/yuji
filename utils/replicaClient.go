@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"bytes"
@@ -8,9 +8,7 @@ import (
 	"strings"
 )
 
-// var redisMap = make(map[string]string)
-
-func replicaConnection(masterHost string, masterPort string, replicaPort string) {
+func ReplicaConnection(masterHost string, masterPort string, replicaPort string) {
 	address := fmt.Sprintf("%s:%s", masterHost, masterPort)
 	m, err := net.Dial("tcp", address)
 	if err != nil {
@@ -38,4 +36,15 @@ func replicaConnection(masterHost string, masterPort string, replicaPort string)
 		fmt.Println("Received unexpected response")
 	}
 
+}
+
+func WriteCommandSync(replicaPorts []string, command []byte) {
+	for _, port := range replicaPorts {
+		address := fmt.Sprintf("localhost:%s", port)
+		m, err := net.Dial("tcp", address)
+		if err != nil {
+			log.Fatalln("couldn't connect to replica at ", address)
+		}
+		m.Write(command)
+	}
 }

@@ -33,7 +33,7 @@ func main() {
 		}
 		isSlave = true
 
-		go replicaConnection(RSlice[0], RSlice[1], *port)
+		go utils.ReplicaConnection(RSlice[0], RSlice[1], *port)
 	}
 
 	listener, err := net.Listen("tcp", ":"+*port)

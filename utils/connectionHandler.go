@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var replicasPorts = []string{}
+
 func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 	infoRes := []string{"role:master", "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", "master_repl_offset:0"}
 
@@ -76,7 +78,7 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 			WriteRESPBulkString(conn, msg)
 
 		case "replconf":
-			log.Printf("replconf")
+			replicasPorts = append(replicasPorts, args[2].Value.(string))
 			WriteRESPSimpleString(conn, "OK")
 
 		case "psync":
@@ -127,6 +129,11 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 				}
 			}
 			WriteRESPSimpleString(conn, "OK")
+
+			if !isSlave {
+				log.Println("replconf", replicasPorts)
+				WriteCommandSync(replicasPorts, trimmedData)
+			}
 
 		case "get":
 			if len(args) != 2 {
