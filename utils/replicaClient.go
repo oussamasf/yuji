@@ -20,17 +20,16 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 
 	defer m.Close()
 
-	m.Write([]byte("*1\r\n$4\r\nping\r\n"))
+	WriteArrayResp(m, []string{"ping"})
 	time.Sleep(100 * time.Millisecond)
 
-	m.Write([]byte("*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"))
+	WriteArrayResp(m, []string{"REPLCONF", "capa", "psync2"})
 	time.Sleep(100 * time.Millisecond)
 
-	m.Write([]byte("*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"))
+	WriteArrayResp(m, []string{"PSYNC", "?", "-1"})
 	time.Sleep(100 * time.Millisecond)
 
-	replConfig := fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%s\r\n", replicaPort)
-	m.Write([]byte(replConfig))
+	WriteArrayResp(m, []string{"REPLCONF", "listening-port", replicaPort})
 
 	buffer := make([]byte, 1028)
 	for {
@@ -55,14 +54,16 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 				if err == io.EOF {
 					continue
 				}
-				log.Printf("Error parsing command: %v", err)
-				WriteRESPError(m, "ERROR: Invalid command")
 				continue
 			}
 
 			if args, ok := commands.Value.([]RESPValue); ok {
 				cmdName, _ := args[0].Value.(string)
+				log.Printf("Error parsing command: %v", cmdName)
+
 				switch strings.ToLower(cmdName) {
+				case "replconf":
+					WriteArrayResp(m, []string{"replconf", "ack", "0"})
 				case "set":
 					if len(args) < 3 {
 						WriteRESPError(m, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")

@@ -14,7 +14,6 @@ type RESPValue struct {
 }
 
 func Parser(input string) (*RESPValue, error) {
-
 	reader := bufio.NewReader(strings.NewReader(input))
 	return parseRESPValue(reader)
 }

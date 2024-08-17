@@ -23,7 +23,7 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 		n, err := conn.Read(data)
 		if err != nil {
 			if err == io.EOF {
-				log.Fatalln("Connection closed")
+				log.Println("Connection closed")
 				break
 			}
 			log.Printf("Error reading: %v", err)
@@ -32,10 +32,9 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 		trimmedData := bytes.TrimRight(data[:n], "\x00")
 		formattedInput := strings.ReplaceAll(string(trimmedData), "\\r\\n", "\r\n")
 		commands, err := Parser(formattedInput)
-		log.Printf("received %v", commands)
+		log.Printf("Something master: %v\n", commands)
 
 		if err != nil {
-			log.Printf("Error parsing command: %v", err)
 			WriteRESPError(conn, "ERROR: Invalid command")
 			continue
 		}
@@ -91,11 +90,13 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 
 			//? send bulk string of hard coded empty RDB file after full resync
 			emptyRDB := "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+
 			WriteRESPBulkString(conn, emptyRDB)
+			time.Sleep(100 * time.Millisecond)
+
+			WriteArrayResp(conn, []string{"replconf", "getack", "*"})
 
 			replicasConnections = append(replicasConnections, conn)
-
-			log.Println("replconf", replicasConnections)
 
 		case "ping":
 			WriteRESPSimpleString(conn, "PONG")
