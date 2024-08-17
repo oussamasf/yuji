@@ -3,7 +3,6 @@ package utils
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"hash/crc64"
 	"os"
 	"path/filepath"
@@ -102,34 +101,4 @@ func writeLength(buf *bytes.Buffer, length int) {
 		buf.WriteByte(0xC0)
 		binary.Write(buf, binary.BigEndian, uint32(length))
 	}
-}
-
-func LogFileBytes(filename string) error {
-	file, err := os.Open(filename)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return err
-	}
-
-	buffer := make([]byte, fileInfo.Size())
-	_, err = file.Read(buffer)
-	if err != nil {
-		return err
-	}
-
-	fmt.Println("File content in bytes:")
-	for i, b := range buffer {
-		fmt.Printf("%02x ", b)
-		if (i+1)%16 == 0 {
-			fmt.Println()
-		}
-	}
-	fmt.Println()
-
-	return nil
 }
