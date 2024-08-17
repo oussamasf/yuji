@@ -80,6 +80,15 @@ func HandleConnection(conn net.Conn, config *Config) {
 			}
 			WriteRESPSimpleString(conn, "OK")
 
+		case "keys":
+			keys, err := LogFileKeys()
+			fmt.Println(err)
+			if err != nil {
+				WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
+				continue
+			}
+			WriteArrayResp(conn, keys)
+
 		case "config":
 			subcommand, ok := args[1].Value.(string)
 			subcommand = strings.ToLower(subcommand)
