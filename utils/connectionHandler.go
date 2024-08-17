@@ -14,12 +14,13 @@ import (
 var replicasConnections = []net.Conn{}
 
 type Config struct {
-	Port        string
-	ReplicaType string
-	Dir         string
-	DBFileName  string
-	IsSlave     bool
-	RedisMap    map[string]string
+	Port          string
+	ReplicaType   string
+	Dir           string
+	DBFileName    string
+	IsSlave       bool
+	RedisMap      map[string]string
+	ExpirationMap map[string]int64
 }
 
 func HandleConnection(conn net.Conn, config *Config) {
@@ -71,6 +72,13 @@ func HandleConnection(conn net.Conn, config *Config) {
 		}
 
 		switch strings.ToLower(cmdName) {
+		case "save":
+			err := SaveRDBFile(0, config)
+			if err != nil {
+				WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
+				continue
+			}
+			WriteRESPSimpleString(conn, "OK")
 
 		case "config":
 			subcommand, ok := args[1].Value.(string)

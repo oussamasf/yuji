@@ -15,14 +15,15 @@ func main() {
 
 	//? Config object to hold all the configuration variables
 	config := &utils.Config{
-		RedisMap: make(map[string]string),
-		IsSlave:  false,
+		RedisMap:      make(map[string]string),
+		ExpirationMap: make(map[string]int64),
+		IsSlave:       false,
 	}
 
 	//? Parse command-line flags
 	flag.StringVar(&config.Port, "p", "8080", "port")
 	flag.StringVar(&config.ReplicaType, "replicaof", "", "replica of")
-	flag.StringVar(&config.Dir, "dir", "", "Directory to store RDB file")
+	flag.StringVar(&config.Dir, "dir", "data", "Directory to store RDB file")
 	flag.StringVar(&config.DBFileName, "dbfilename", "dump.rdb", "RDB file name")
 
 	flag.Parse()
