@@ -13,7 +13,16 @@ import (
 
 var replicasConnections = []net.Conn{}
 
-func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
+type Config struct {
+	Port        string
+	ReplicaType string
+	Dir         string
+	DBFileName  string
+	IsSlave     bool
+	RedisMap    map[string]string
+}
+
+func HandleConnection(conn net.Conn, config *Config) {
 	infoRes := []string{"role:master", "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", "master_repl_offset:0"}
 
 	defer conn.Close()
@@ -63,7 +72,7 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 
 		switch strings.ToLower(cmdName) {
 		case "info":
-			if isSlave {
+			if config.IsSlave {
 				infoRes = []string{"role:slave"}
 			}
 			WriteResponse(conn, NewBulkString(infoRes))
@@ -117,7 +126,7 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
-			cache[key] = value
+			config.RedisMap[key] = value
 
 			if len(args) > 4 {
 
@@ -128,7 +137,7 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 						continue
 					}
 					time.AfterFunc(time.Duration(expiry)*time.Millisecond, func() {
-						delete(cache, key)
+						delete(config.RedisMap, key)
 					})
 				} else {
 					WriteRESPError(conn, "ERROR: INVALID_ARGUMENT")
@@ -137,7 +146,7 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 			}
 			WriteRESPSimpleString(conn, "OK")
 
-			if !isSlave {
+			if !config.IsSlave {
 				WriteCommandSync(replicasConnections, trimmedData)
 			}
 
@@ -151,7 +160,7 @@ func HandleConnection(conn net.Conn, cache map[string]string, isSlave bool) {
 				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
-			result := cache[key]
+			result := config.RedisMap[key]
 			if result == "" {
 				WriteRESPBulkString(conn, "")
 			} else {

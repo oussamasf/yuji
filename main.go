@@ -9,19 +9,30 @@ import (
 	"github.com/oussamasf/yuji/utils"
 )
 
-var redisMap = make(map[string]string)
+// ? Config holds the server configuration.
 
 func main() {
 	var r string
 	var RSlice []string
-	var isSlave = false
 
-	port := flag.String("p", "8080", "port")
-	replicaType := flag.String("replicaof", "", "replica of")
+	//? Config object to hold all the configuration variables
+	config := &utils.Config{
+		RedisMap: make(map[string]string),
+		IsSlave:  false,
+	}
+
+	//? Parse command-line flags
+	flag.StringVar(&config.Port, "p", "8080", "port")
+	flag.StringVar(&config.ReplicaType, "replicaof", "", "replica of")
+	flag.StringVar(&config.Dir, "dir", "", "Directory to store RDB file")
+	flag.StringVar(&config.DBFileName, "dbfilename", "dump.rdb", "RDB file name")
+
 	flag.Parse()
 
-	if *replicaType != "" {
-		r = strings.TrimSpace(*replicaType)
+	flag.Parse()
+
+	if config.ReplicaType != "" {
+		r = strings.TrimSpace(config.ReplicaType)
 		RSlice = strings.Split(r, ":")
 
 		if len(RSlice) != 2 {
@@ -29,22 +40,22 @@ func main() {
 			return
 		}
 
-		if RSlice[1] == *port {
-			fmt.Println("PORT_OF_REPLICA_SHOULD_BE_DIFFERENT_OF_MASTER")
+		if RSlice[1] == config.Port {
+			fmt.Println("PORT_OF_REPLICA_SHOULD_BE_DIFFERENT_FROM_MASTER")
 			return
 		}
-		isSlave = true
 
-		go utils.HandleReplicaConnection(RSlice[0], RSlice[1], *port, redisMap)
+		config.IsSlave = true
+		go utils.HandleReplicaConnection(RSlice[0], RSlice[1], config.Port, config.RedisMap)
 	}
 
-	listener, err := net.Listen("tcp", ":"+*port)
+	listener, err := net.Listen("tcp", ":"+config.Port)
 	if err != nil {
 		fmt.Println("Error listening:", err)
 		return
 	}
 	defer listener.Close()
-	fmt.Println("Server is listening on " + ":" + *port)
+	fmt.Println("Server is listening on " + ":" + config.Port)
 
 	for {
 		conn, err := listener.Accept()
@@ -53,6 +64,6 @@ func main() {
 			continue
 		}
 
-		go utils.HandleConnection(conn, redisMap, isSlave)
+		go utils.HandleConnection(conn, config)
 	}
 }
