@@ -80,11 +80,38 @@ func HandleConnection(conn net.Conn, config *Config) {
 			}
 			WriteRESPSimpleString(conn, "OK")
 
+		case "incr":
+			if len(args) != 2 {
+				WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				continue
+			}
+			key, ok := args[1].Value.(string)
+			if !ok {
+				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+			result, exists := config.RedisMap[key]
+			if !exists {
+				config.RedisMap[key] = "1"
+			} else {
+				intValue, err := strconv.Atoi(result)
+				if err != nil {
+					WriteRESPError(conn, "ERROR: CANNOT_INCR_NOT_INT")
+					continue
+				}
+				config.RedisMap[key] = strconv.Itoa(intValue + 1)
+			}
+
+			if result == "" {
+				WriteRESPBulkString(conn, "")
+			} else {
+				WriteRESPBulkString(conn, config.RedisMap[key])
+			}
+
 		case "keys":
 			keys, err := LogFileKeys()
-			fmt.Println(err)
 			if err != nil {
-				WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
+				WriteRESPError(conn, "ERROR: PARSE_ERROR")
 				continue
 			}
 			WriteArrayResp(conn, keys)
