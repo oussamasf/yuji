@@ -9,8 +9,6 @@ import (
 	"github.com/oussamasf/yuji/utils"
 )
 
-// ? Config holds the server configuration.
-
 func main() {
 	var r string
 	var RSlice []string
@@ -26,8 +24,6 @@ func main() {
 	flag.StringVar(&config.ReplicaType, "replicaof", "", "replica of")
 	flag.StringVar(&config.Dir, "dir", "", "Directory to store RDB file")
 	flag.StringVar(&config.DBFileName, "dbfilename", "dump.rdb", "RDB file name")
-
-	flag.Parse()
 
 	flag.Parse()
 

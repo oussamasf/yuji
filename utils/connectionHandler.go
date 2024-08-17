@@ -71,6 +71,31 @@ func HandleConnection(conn net.Conn, config *Config) {
 		}
 
 		switch strings.ToLower(cmdName) {
+
+		case "config":
+			subcommand, ok := args[1].Value.(string)
+			subcommand = strings.ToLower(subcommand)
+			if !ok && subcommand != "get" {
+				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+
+			value, ok := args[2].Value.(string)
+			value = strings.ToLower(value)
+
+			if !ok {
+				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+
+			if value == "dir" {
+				WriteArrayResp(conn, []string{"dir", fmt.Sprint(len(config.Dir)), config.Dir})
+			} else if value == "dbfilename" {
+				WriteArrayResp(conn, []string{"dbfilename", fmt.Sprint(len(config.DBFileName)), config.DBFileName})
+			} else {
+				WriteRESPError(conn, "ERR unsupported CONFIG parameter")
+			}
+
 		case "info":
 			if config.IsSlave {
 				infoRes = []string{"role:slave"}
