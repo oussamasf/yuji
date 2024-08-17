@@ -23,6 +23,14 @@ type Config struct {
 	ExpirationMap map[string]int64
 }
 
+type TX struct {
+	InvokedTx bool
+}
+
+var txQueue = TX{
+	InvokedTx: false,
+}
+
 func HandleConnection(conn net.Conn, config *Config) {
 	infoRes := []string{"role:master", "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", "master_repl_offset:0"}
 
@@ -79,6 +87,19 @@ func HandleConnection(conn net.Conn, config *Config) {
 				continue
 			}
 			WriteRESPSimpleString(conn, "OK")
+		case "multi":
+			txQueue = TX{
+				InvokedTx: true,
+			}
+			WriteRESPSimpleString(conn, "OK")
+
+		case "exec":
+			if !txQueue.InvokedTx {
+				WriteRESPError(conn, "ERROR: EXEC without MULTI")
+				continue
+			}
+
+			WriteArrayResp(conn, []string{})
 
 		case "incr":
 			if len(args) != 2 {
@@ -102,11 +123,7 @@ func HandleConnection(conn net.Conn, config *Config) {
 				config.RedisMap[key] = strconv.Itoa(intValue + 1)
 			}
 
-			if result == "" {
-				WriteRESPBulkString(conn, "")
-			} else {
-				WriteRESPBulkString(conn, config.RedisMap[key])
-			}
+			WriteRESPBulkString(conn, config.RedisMap[key])
 
 		case "keys":
 			keys, err := LogFileKeys()
