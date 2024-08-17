@@ -123,7 +123,12 @@ func HandleConnection(conn net.Conn, config *Config) {
 				config.RedisMap[key] = strconv.Itoa(intValue + 1)
 			}
 
-			WriteRESPBulkString(conn, config.RedisMap[key])
+			if txQueue.InvokedTx {
+				WriteRESPSimpleString(conn, "QUEUED")
+				continue
+			} else {
+				WriteRESPBulkString(conn, config.RedisMap[key])
+			}
 
 		case "keys":
 			keys, err := LogFileKeys()
@@ -230,7 +235,13 @@ func HandleConnection(conn net.Conn, config *Config) {
 					continue
 				}
 			}
-			WriteRESPSimpleString(conn, "OK")
+
+			if txQueue.InvokedTx {
+				WriteRESPSimpleString(conn, "QUEUED")
+				continue
+			} else {
+				WriteRESPSimpleString(conn, "OK")
+			}
 
 			if !config.IsSlave {
 				WriteCommandSync(replicasConnections, trimmedData)
