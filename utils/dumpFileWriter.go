@@ -3,7 +3,6 @@ package utils
 import (
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"hash/crc64"
 	"os"
 	"path/filepath"
@@ -43,8 +42,6 @@ func SaveRDBFile(dbIndex int, config *Config) error {
 	writeLength(&buf, len(config.ExpirationMap)) // Expiration hash table size
 
 	//? Write each key-value pair
-	fmt.Println(config.RedisMap)
-
 	for key, value := range config.RedisMap {
 		//? Check if the key has an expiration
 		if expiration, exists := config.ExpirationMap[key]; exists {

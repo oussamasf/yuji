@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"encoding/hex"
 	"fmt"
 )
 
@@ -77,8 +76,8 @@ func extractBetweenFeAndFf(data []byte) []byte {
 
 // LogFileKeys reads an RDB file and extracts all keys as strings.
 func LogFileKeys() ([]string, error) {
-	// Hardcoded RDB file content as a byte slice
-
+	//? Hardcoded RDB file content as a byte slice
+	// TODO fix dump file writer
 	data := []byte{
 		0x52, 0x45, 0x44, 0x49, 0x53, 0x30, 0x30, 0x30, 0x36,
 		0xFE, 0x00, 0xFC, 0x00, 0x00, 0x03,
@@ -89,7 +88,8 @@ func LogFileKeys() ([]string, error) {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
 
-	fmt.Println(hex.EncodeToString(extractBetweenFeAndFf(data)))
+	// data, _ := os.ReadFile("data/dump.rdb")
+
 	keys, err := extractKeys(extractBetweenFeAndFf(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse keys: %w", err)
