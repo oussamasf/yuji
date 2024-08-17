@@ -26,10 +26,10 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 	WriteArrayResp(m, []string{"REPLCONF", "capa", "psync2"})
 	time.Sleep(100 * time.Millisecond)
 
-	WriteArrayResp(m, []string{"PSYNC", "?", "-1"})
+	WriteArrayResp(m, []string{"REPLCONF", "listening-port", replicaPort})
 	time.Sleep(100 * time.Millisecond)
 
-	WriteArrayResp(m, []string{"REPLCONF", "listening-port", replicaPort})
+	WriteArrayResp(m, []string{"PSYNC", "?", "-1"})
 
 	buffer := make([]byte, 1028)
 	for {
@@ -44,7 +44,7 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 		}
 
 		if n > 0 {
-			trimmedBuffer := bytes.Trim(buffer[:n], "\x00\r\n")
+			trimmedBuffer := bytes.Trim(buffer[:n], "\x00")
 
 			formattedInput := strings.ReplaceAll(string(trimmedBuffer), "\\r\\n", "\r\n")
 
@@ -58,12 +58,13 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 			}
 
 			if args, ok := commands.Value.([]RESPValue); ok {
+				bytesCount := +len(formattedInput)
+
 				cmdName, _ := args[0].Value.(string)
-				log.Printf("Error parsing command: %v", cmdName)
 
 				switch strings.ToLower(cmdName) {
 				case "replconf":
-					WriteArrayResp(m, []string{"replconf", "ack", "0"})
+					WriteArrayResp(m, []string{"replconf", "ack", fmt.Sprint(bytesCount)})
 				case "set":
 					if len(args) < 3 {
 						WriteRESPError(m, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
