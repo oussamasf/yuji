@@ -1,4 +1,4 @@
-package config
+package configuration
 
 type AppSettings struct {
 	Port           string
@@ -10,6 +10,17 @@ type AppSettings struct {
 	ExpirationMap  map[string]int64
 }
 
-type TransactionsSettings struct {
+type RESPValue struct {
+	Type  byte
+	Value interface{}
+}
+
+type TSession struct {
+	Cmd  string
+	Args []RESPValue
+}
+
+type TransactionSettings struct {
 	InvokedTx bool
+	Session   []TSession
 }

@@ -6,19 +6,16 @@ import (
 	"io"
 	"strconv"
 	"strings"
+
+	configuration "github.com/oussamasf/yuji/config"
 )
 
-type RESPValue struct {
-	Type  byte
-	Value interface{}
-}
-
-func Parser(input string) (*RESPValue, error) {
+func Parser(input string) (*configuration.RESPValue, error) {
 	reader := bufio.NewReader(strings.NewReader(input))
 	return parseRESPValue(reader)
 }
 
-func parseRESPValue(reader *bufio.Reader) (*RESPValue, error) {
+func parseRESPValue(reader *bufio.Reader) (*configuration.RESPValue, error) {
 	dataType, err := reader.ReadByte()
 	if err != nil {
 		return nil, err
@@ -40,23 +37,23 @@ func parseRESPValue(reader *bufio.Reader) (*RESPValue, error) {
 	}
 }
 
-func parseSimpleString(reader *bufio.Reader) (*RESPValue, error) {
+func parseSimpleString(reader *bufio.Reader) (*configuration.RESPValue, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
-	return &RESPValue{Type: '+', Value: strings.TrimRight(line, "\r\n")}, nil
+	return &configuration.RESPValue{Type: '+', Value: strings.TrimRight(line, "\r\n")}, nil
 }
 
-func parseError(reader *bufio.Reader) (*RESPValue, error) {
+func parseError(reader *bufio.Reader) (*configuration.RESPValue, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
 	}
-	return &RESPValue{Type: '-', Value: strings.TrimRight(line, "\r\n")}, nil
+	return &configuration.RESPValue{Type: '-', Value: strings.TrimRight(line, "\r\n")}, nil
 }
 
-func parseInteger(reader *bufio.Reader) (*RESPValue, error) {
+func parseInteger(reader *bufio.Reader) (*configuration.RESPValue, error) {
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -65,10 +62,10 @@ func parseInteger(reader *bufio.Reader) (*RESPValue, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &RESPValue{Type: ':', Value: value}, nil
+	return &configuration.RESPValue{Type: ':', Value: value}, nil
 }
 
-func parseBulkString(reader *bufio.Reader) (*RESPValue, error) {
+func parseBulkString(reader *bufio.Reader) (*configuration.RESPValue, error) {
 	lenStr, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -78,17 +75,17 @@ func parseBulkString(reader *bufio.Reader) (*RESPValue, error) {
 		return nil, err
 	}
 	if length == -1 {
-		return &RESPValue{Type: '$', Value: nil}, nil
+		return &configuration.RESPValue{Type: '$', Value: nil}, nil
 	}
 	data := make([]byte, length+2) // +2 for \r\n
 	_, err = io.ReadFull(reader, data)
 	if err != nil {
 		return nil, err
 	}
-	return &RESPValue{Type: '$', Value: string(data[:length])}, nil
+	return &configuration.RESPValue{Type: '$', Value: string(data[:length])}, nil
 }
 
-func parseArray(reader *bufio.Reader) (*RESPValue, error) {
+func parseArray(reader *bufio.Reader) (*configuration.RESPValue, error) {
 	lenStr, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -98,9 +95,9 @@ func parseArray(reader *bufio.Reader) (*RESPValue, error) {
 		return nil, err
 	}
 	if length == -1 {
-		return &RESPValue{Type: '*', Value: nil}, nil
+		return &configuration.RESPValue{Type: '*', Value: nil}, nil
 	}
-	array := make([]RESPValue, length)
+	array := make([]configuration.RESPValue, length)
 	for i := 0; i < length; i++ {
 		value, err := parseRESPValue(reader)
 		if err != nil {
@@ -108,5 +105,5 @@ func parseArray(reader *bufio.Reader) (*RESPValue, error) {
 		}
 		array[i] = *value
 	}
-	return &RESPValue{Type: '*', Value: array}, nil
+	return &configuration.RESPValue{Type: '*', Value: array}, nil
 }

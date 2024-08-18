@@ -10,18 +10,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oussamasf/yuji/config"
+	configuration "github.com/oussamasf/yuji/config"
 	"github.com/oussamasf/yuji/service/tcp"
 	"github.com/oussamasf/yuji/utils"
 )
 
 var replicasConnections = []net.Conn{}
 
-var txQueue = config.TransactionsSettings{
+var txQueue = configuration.TransactionSettings{
 	InvokedTx: false,
 }
 
-func HandleConnection(conn net.Conn, config *config.AppSettings) {
+func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 	infoRes := []string{"role:master", "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", "master_repl_offset:0"}
 
 	defer conn.Close()
@@ -52,7 +52,7 @@ func HandleConnection(conn net.Conn, config *config.AppSettings) {
 			continue
 		}
 
-		args, ok := commands.Value.([]utils.RESPValue)
+		args, ok := commands.Value.([]configuration.RESPValue)
 		if !ok {
 			tcp.WriteRESPError(conn, "ERROR: Invalid command format")
 			continue
@@ -86,8 +86,26 @@ func HandleConnection(conn net.Conn, config *config.AppSettings) {
 				tcp.WriteRESPError(conn, "ERROR: EXEC without MULTI")
 				continue
 			}
+			if len(txQueue.Session) == 0 {
+				tcp.WriteArrayResp(conn, []string{})
+			} else {
+				for _, session := range txQueue.Session {
+					switch session.Cmd {
 
-			tcp.WriteArrayResp(conn, []string{})
+					case "set":
+						res, err := handleSetCmd(session.Args, config.RedisMap)
+						if err != nil {
+							tcp.WriteRESPError(conn, fmt.Sprint(err))
+						}
+
+						tcp.WriteRESPSimpleString(conn, res)
+
+					default:
+						tcp.WriteArrayResp(conn, []string{})
+
+					}
+				}
+			}
 
 		case "incr":
 			if len(args) != 2 {
@@ -191,44 +209,16 @@ func HandleConnection(conn net.Conn, config *config.AppSettings) {
 			tcp.WriteRESPSimpleString(conn, "PONG")
 
 		case "set":
-			if len(args) < 3 {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
-				continue
-			}
-			key, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-			value, ok := args[2].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-			config.RedisMap[key] = value
-
-			if len(args) > 4 {
-
-				if strings.ToLower(args[3].Value.(string)) == "px" {
-					expiry, err := strconv.Atoi(args[4].Value.(string))
-					if err != nil {
-						tcp.WriteRESPError(conn, "ERROR: INVALID_PX")
-						continue
-					}
-					time.AfterFunc(time.Duration(expiry)*time.Millisecond, func() {
-						delete(config.RedisMap, key)
-					})
-				} else {
-					tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT")
-					continue
-				}
-			}
-
 			if txQueue.InvokedTx {
+				session := configuration.TSession{
+					Cmd:  strings.ToLower(cmdName),
+					Args: args,
+				}
 				tcp.WriteRESPSimpleString(conn, "QUEUED")
+				txQueue.Session = append(txQueue.Session, session)
 				continue
 			} else {
-				tcp.WriteRESPSimpleString(conn, "OK")
+				handleSetCmd(args, config.RedisMap)
 			}
 
 			if !config.IsSlave {
@@ -259,4 +249,37 @@ func HandleConnection(conn net.Conn, config *config.AppSettings) {
 	}
 }
 
-// SET
+// ? SET
+func handleSetCmd(args []configuration.RESPValue, cache map[string]string) (string, error) {
+	if len(args) < 3 {
+		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+	}
+
+	key, ok := args[1].Value.(string)
+	if !ok {
+		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
+	}
+
+	value, ok := args[2].Value.(string)
+	if !ok {
+		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
+	}
+
+	cache[key] = value
+
+	if len(args) > 4 {
+		if strings.ToLower(args[3].Value.(string)) == "px" {
+			expiry, err := strconv.Atoi(args[4].Value.(string))
+			if err != nil {
+				return "", fmt.Errorf("ERROR: INVALID_PX")
+			}
+			time.AfterFunc(time.Duration(expiry)*time.Millisecond, func() {
+				delete(cache, key)
+			})
+		} else {
+			return "", fmt.Errorf("ERROR: INVALID_ARGUMENT")
+		}
+	}
+
+	return "OK", nil
+}

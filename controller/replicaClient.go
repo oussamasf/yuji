@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	configuration "github.com/oussamasf/yuji/config"
 	"github.com/oussamasf/yuji/service/tcp"
 	"github.com/oussamasf/yuji/utils"
 )
@@ -60,7 +61,7 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 				continue
 			}
 
-			if args, ok := commands.Value.([]utils.RESPValue); ok {
+			if args, ok := commands.Value.([]configuration.RESPValue); ok {
 				bytesCount := +len(formattedInput)
 
 				cmdName, _ := args[0].Value.(string)

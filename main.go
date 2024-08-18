@@ -6,7 +6,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/oussamasf/yuji/config"
+	configuration "github.com/oussamasf/yuji/config"
 	"github.com/oussamasf/yuji/controller"
 )
 
@@ -15,7 +15,7 @@ func main() {
 	var RSlice []string
 
 	//? Config object to hold all the configuration variables
-	config := &config.AppSettings{
+	config := &configuration.AppSettings{
 		RedisMap:      make(map[string]string),
 		ExpirationMap: make(map[string]int64),
 		IsSlave:       false,
