@@ -23,28 +23,28 @@ func main() {
 
 	//? Parse command-line flags
 	flag.StringVar(&config.Port, "p", "8080", "port")
-	flag.StringVar(&config.ReplicaType, "replicaof", "", "replica of")
+	flag.StringVar(&config.ReplicaAddress, "replicaof", "", "replica of")
 	flag.StringVar(&config.Dir, "dir", "data", "Directory to store RDB file")
 	flag.StringVar(&config.DBFileName, "dbfilename", "dump.rdb", "RDB file name")
 
 	flag.Parse()
 
-	if config.ReplicaType != "" {
-		r = strings.TrimSpace(config.ReplicaType)
+	if config.ReplicaAddress != "" {
+		r = strings.TrimSpace(config.ReplicaAddress)
 		RSlice = strings.Split(r, ":")
 
 		if len(RSlice) != 2 {
 			fmt.Println("INVALID_REPLICA_ARGUMENT")
 			return
 		}
-
-		if RSlice[1] == config.Port {
+		masterHost, masterPort := RSlice[0], RSlice[1]
+		if masterPort == config.Port {
 			fmt.Println("PORT_OF_REPLICA_SHOULD_BE_DIFFERENT_FROM_MASTER")
 			return
 		}
 
 		config.IsSlave = true
-		go controller.HandleReplicaConnection(RSlice[0], RSlice[1], config.Port, config.RedisMap)
+		go controller.HandleReplicaConnection(masterHost, masterPort, config.Port, config.RedisMap)
 	}
 
 	listener, err := net.Listen("tcp", ":"+config.Port)
