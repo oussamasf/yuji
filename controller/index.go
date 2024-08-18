@@ -1,4 +1,4 @@
-package utils
+package controller
 
 import (
 	"bytes"
@@ -9,29 +9,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/oussamasf/yuji/config"
+	"github.com/oussamasf/yuji/service/tcp"
+	"github.com/oussamasf/yuji/utils"
 )
 
 var replicasConnections = []net.Conn{}
 
-type Config struct {
-	Port          string
-	ReplicaType   string
-	Dir           string
-	DBFileName    string
-	IsSlave       bool
-	RedisMap      map[string]string
-	ExpirationMap map[string]int64
-}
-
-type TX struct {
-	InvokedTx bool
-}
-
-var txQueue = TX{
+var txQueue = config.TransactionsSettings{
 	InvokedTx: false,
 }
 
-func HandleConnection(conn net.Conn, config *Config) {
+func HandleConnection(conn net.Conn, config *config.AppSettings) {
 	infoRes := []string{"role:master", "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", "master_repl_offset:0"}
 
 	defer conn.Close()
@@ -50,65 +40,63 @@ func HandleConnection(conn net.Conn, config *Config) {
 		trimmedData := bytes.TrimRight(data[:n], "\x00")
 		formattedInput := strings.ReplaceAll(string(trimmedData), "\\r\\n", "\r\n")
 
-		commands, err := Parser(formattedInput)
+		commands, err := utils.Parser(formattedInput)
 
 		if err != nil {
-			WriteRESPError(conn, "ERROR: Invalid command")
+			tcp.WriteRESPError(conn, "ERROR: Invalid command")
 			continue
 		}
 
 		if commands.Type != '*' {
-			WriteRESPError(conn, "ERROR: Expected array for command")
+			tcp.WriteRESPError(conn, "ERROR: Expected array for command")
 			continue
 		}
 
-		args, ok := commands.Value.([]RESPValue)
+		args, ok := commands.Value.([]utils.RESPValue)
 		if !ok {
-			WriteRESPError(conn, "ERROR: Invalid command format")
+			tcp.WriteRESPError(conn, "ERROR: Invalid command format")
 			continue
 		}
 
 		if len(args) < 1 {
-			WriteRESPError(conn, "ERROR: No command given")
+			tcp.WriteRESPError(conn, "ERROR: No command given")
 			continue
 		}
 
 		cmdName, ok := args[0].Value.(string)
 		if !ok {
-			WriteRESPError(conn, "ERROR: Invalid command name")
+			tcp.WriteRESPError(conn, "ERROR: Invalid command name")
 			continue
 		}
 
 		switch strings.ToLower(cmdName) {
 		case "save":
-			err := SaveRDBFile(0, config)
+			err := utils.SaveRDBFile(0, config)
 			if err != nil {
-				WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
+				tcp.WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
 				continue
 			}
-			WriteRESPSimpleString(conn, "OK")
+			tcp.WriteRESPSimpleString(conn, "OK")
 		case "multi":
-			txQueue = TX{
-				InvokedTx: true,
-			}
-			WriteRESPSimpleString(conn, "OK")
+			txQueue.InvokedTx = true
+			tcp.WriteRESPSimpleString(conn, "OK")
 
 		case "exec":
 			if !txQueue.InvokedTx {
-				WriteRESPError(conn, "ERROR: EXEC without MULTI")
+				tcp.WriteRESPError(conn, "ERROR: EXEC without MULTI")
 				continue
 			}
 
-			WriteArrayResp(conn, []string{})
+			tcp.WriteArrayResp(conn, []string{})
 
 		case "incr":
 			if len(args) != 2 {
-				WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 				continue
 			}
 			key, ok := args[1].Value.(string)
 			if !ok {
-				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 			result, exists := config.RedisMap[key]
@@ -117,32 +105,32 @@ func HandleConnection(conn net.Conn, config *Config) {
 			} else {
 				intValue, err := strconv.Atoi(result)
 				if err != nil {
-					WriteRESPError(conn, "ERROR: CANNOT_INCR_NOT_INT")
+					tcp.WriteRESPError(conn, "ERROR: CANNOT_INCR_NOT_INT")
 					continue
 				}
 				config.RedisMap[key] = strconv.Itoa(intValue + 1)
 			}
 
 			if txQueue.InvokedTx {
-				WriteRESPSimpleString(conn, "QUEUED")
+				tcp.WriteRESPSimpleString(conn, "QUEUED")
 				continue
 			} else {
-				WriteRESPBulkString(conn, config.RedisMap[key])
+				tcp.WriteRESPBulkString(conn, config.RedisMap[key])
 			}
 
 		case "keys":
-			keys, err := LogFileKeys()
+			keys, err := utils.LogFileKeys()
 			if err != nil {
-				WriteRESPError(conn, "ERROR: PARSE_ERROR")
+				tcp.WriteRESPError(conn, "ERROR: PARSE_ERROR")
 				continue
 			}
-			WriteArrayResp(conn, keys)
+			tcp.WriteArrayResp(conn, keys)
 
 		case "config":
 			subcommand, ok := args[1].Value.(string)
 			subcommand = strings.ToLower(subcommand)
 			if !ok && subcommand != "get" {
-				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 
@@ -150,71 +138,71 @@ func HandleConnection(conn net.Conn, config *Config) {
 			value = strings.ToLower(value)
 
 			if !ok {
-				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 
 			if value == "dir" {
-				WriteArrayResp(conn, []string{"dir", fmt.Sprint(len(config.Dir)), config.Dir})
+				tcp.WriteArrayResp(conn, []string{"dir", fmt.Sprint(len(config.Dir)), config.Dir})
 			} else if value == "dbfilename" {
-				WriteArrayResp(conn, []string{"dbfilename", fmt.Sprint(len(config.DBFileName)), config.DBFileName})
+				tcp.WriteArrayResp(conn, []string{"dbfilename", fmt.Sprint(len(config.DBFileName)), config.DBFileName})
 			} else {
-				WriteRESPError(conn, "ERR unsupported CONFIG parameter")
+				tcp.WriteRESPError(conn, "ERR unsupported CONFIG parameter")
 			}
 
 		case "info":
 			if config.IsSlave {
 				infoRes = []string{"role:slave"}
 			}
-			WriteResponse(conn, NewBulkString(infoRes))
+			tcp.WriteResponse(conn, utils.NewBulkString(infoRes))
 
 		case "echo":
 			if len(args) != 2 {
-				WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 				continue
 			}
 			msg, ok := args[1].Value.(string)
 			if !ok {
-				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
-			WriteRESPBulkString(conn, msg)
+			tcp.WriteRESPBulkString(conn, msg)
 
 		case "replconf":
-			WriteRESPSimpleString(conn, "OK")
+			tcp.WriteRESPSimpleString(conn, "OK")
 
 		case "psync":
 			hardCoddedId := "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
 
-			WriteRESPSimpleString(conn, fmt.Sprintf("FULLRESYNC %s 0", hardCoddedId))
+			tcp.WriteRESPSimpleString(conn, fmt.Sprintf("FULLRESYNC %s 0", hardCoddedId))
 			time.Sleep(100 * time.Millisecond)
 
 			//? send bulk string of hard coded empty RDB file after full resync
 			emptyRDB := "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 
-			WriteRESPBulkString(conn, emptyRDB)
+			tcp.WriteRESPBulkString(conn, emptyRDB)
 			time.Sleep(100 * time.Millisecond)
 
-			WriteArrayResp(conn, []string{"replconf", "getack", "*"})
+			tcp.WriteArrayResp(conn, []string{"replconf", "getack", "*"})
 
 			replicasConnections = append(replicasConnections, conn)
 
 		case "ping":
-			WriteRESPSimpleString(conn, "PONG")
+			tcp.WriteRESPSimpleString(conn, "PONG")
 
 		case "set":
 			if len(args) < 3 {
-				WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 				continue
 			}
 			key, ok := args[1].Value.(string)
 			if !ok {
-				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 			value, ok := args[2].Value.(string)
 			if !ok {
-				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 			config.RedisMap[key] = value
@@ -224,23 +212,23 @@ func HandleConnection(conn net.Conn, config *Config) {
 				if strings.ToLower(args[3].Value.(string)) == "px" {
 					expiry, err := strconv.Atoi(args[4].Value.(string))
 					if err != nil {
-						WriteRESPError(conn, "ERROR: INVALID_PX")
+						tcp.WriteRESPError(conn, "ERROR: INVALID_PX")
 						continue
 					}
 					time.AfterFunc(time.Duration(expiry)*time.Millisecond, func() {
 						delete(config.RedisMap, key)
 					})
 				} else {
-					WriteRESPError(conn, "ERROR: INVALID_ARGUMENT")
+					tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT")
 					continue
 				}
 			}
 
 			if txQueue.InvokedTx {
-				WriteRESPSimpleString(conn, "QUEUED")
+				tcp.WriteRESPSimpleString(conn, "QUEUED")
 				continue
 			} else {
-				WriteRESPSimpleString(conn, "OK")
+				tcp.WriteRESPSimpleString(conn, "OK")
 			}
 
 			if !config.IsSlave {
@@ -249,23 +237,23 @@ func HandleConnection(conn net.Conn, config *Config) {
 
 		case "get":
 			if len(args) != 2 {
-				WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 				continue
 			}
 			key, ok := args[1].Value.(string)
 			if !ok {
-				WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 			result := config.RedisMap[key]
 			if result == "" {
-				WriteRESPBulkString(conn, "")
+				tcp.WriteRESPBulkString(conn, "")
 			} else {
-				WriteRESPBulkString(conn, result)
+				tcp.WriteRESPBulkString(conn, result)
 			}
 
 		default:
-			WriteResponse(conn, "ERROR: Unknown command")
+			tcp.WriteResponse(conn, "ERROR: Unknown command")
 			return
 		}
 	}

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/oussamasf/yuji/config"
 )
 
 const (
@@ -25,7 +27,7 @@ const (
 // - dbIndex: the logical Redis database index (usually an integer like 0).
 // - data: the hashmap containing the keys and their associated values.
 // - expirations: map of keys with expiration times, in Unix milliseconds or seconds.
-func SaveRDBFile(dbIndex int, config *Config) error {
+func SaveRDBFile(dbIndex int, config *config.AppSettings) error {
 	var buf bytes.Buffer
 
 	//? Write the Redis RDB header

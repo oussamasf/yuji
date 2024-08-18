@@ -1,4 +1,4 @@
-package utils
+package controller
 
 import (
 	"bytes"
@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/oussamasf/yuji/service/tcp"
+	"github.com/oussamasf/yuji/utils"
 )
 
 func HandleReplicaConnection(masterHost string, masterPort string, replicaPort string, cache map[string]string) {
@@ -20,16 +23,16 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 
 	defer m.Close()
 
-	WriteArrayResp(m, []string{"ping"})
+	tcp.WriteArrayResp(m, []string{"ping"})
 	time.Sleep(100 * time.Millisecond)
 
-	WriteArrayResp(m, []string{"REPLCONF", "capa", "psync2"})
+	tcp.WriteArrayResp(m, []string{"REPLCONF", "capa", "psync2"})
 	time.Sleep(100 * time.Millisecond)
 
-	WriteArrayResp(m, []string{"REPLCONF", "listening-port", replicaPort})
+	tcp.WriteArrayResp(m, []string{"REPLCONF", "listening-port", replicaPort})
 	time.Sleep(100 * time.Millisecond)
 
-	WriteArrayResp(m, []string{"PSYNC", "?", "-1"})
+	tcp.WriteArrayResp(m, []string{"PSYNC", "?", "-1"})
 
 	buffer := make([]byte, 1028)
 	for {
@@ -48,7 +51,7 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 
 			formattedInput := strings.ReplaceAll(string(trimmedBuffer), "\\r\\n", "\r\n")
 
-			commands, err := Parser(formattedInput)
+			commands, err := utils.Parser(formattedInput)
 
 			if err != nil {
 				if err == io.EOF {
@@ -57,27 +60,27 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 				continue
 			}
 
-			if args, ok := commands.Value.([]RESPValue); ok {
+			if args, ok := commands.Value.([]utils.RESPValue); ok {
 				bytesCount := +len(formattedInput)
 
 				cmdName, _ := args[0].Value.(string)
 
 				switch strings.ToLower(cmdName) {
 				case "replconf":
-					WriteArrayResp(m, []string{"replconf", "ack", fmt.Sprint(bytesCount)})
+					tcp.WriteArrayResp(m, []string{"replconf", "ack", fmt.Sprint(bytesCount)})
 				case "set":
 					if len(args) < 3 {
-						WriteRESPError(m, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+						tcp.WriteRESPError(m, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 						continue
 					}
 					key, ok := args[1].Value.(string)
 					if !ok {
-						WriteRESPError(m, "ERROR: INVALID_ARGUMENT_TYPE")
+						tcp.WriteRESPError(m, "ERROR: INVALID_ARGUMENT_TYPE")
 						continue
 					}
 					value, ok := args[2].Value.(string)
 					if !ok {
-						WriteRESPError(m, "ERROR: INVALID_ARGUMENT_TYPE")
+						tcp.WriteRESPError(m, "ERROR: INVALID_ARGUMENT_TYPE")
 						continue
 					}
 					cache[key] = value
@@ -87,21 +90,21 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 						if strings.ToLower(args[3].Value.(string)) == "px" {
 							expiry, err := strconv.Atoi(args[4].Value.(string))
 							if err != nil {
-								WriteRESPError(m, "ERROR: INVALID_PX")
+								tcp.WriteRESPError(m, "ERROR: INVALID_PX")
 								continue
 							}
 							time.AfterFunc(time.Duration(expiry)*time.Millisecond, func() {
 								delete(cache, key)
 							})
 						} else {
-							WriteRESPError(m, "ERROR: INVALID_ARGUMENT")
+							tcp.WriteRESPError(m, "ERROR: INVALID_ARGUMENT")
 							continue
 						}
 					}
-					WriteRESPSimpleString(m, "OK")
+					tcp.WriteRESPSimpleString(m, "OK")
 
 				default:
-					WriteResponse(m, "ERROR: Unknown command")
+					tcp.WriteResponse(m, "ERROR: Unknown command")
 					return
 				}
 			}
