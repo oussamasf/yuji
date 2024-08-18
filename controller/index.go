@@ -112,6 +112,18 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 							tcp.WriteRESPBulkString(conn, res)
 						}
 
+					case "incr":
+						res, err := handleIncrCmd(session.Args, config.RedisMap)
+						if err != nil {
+							tcp.WriteRESPError(conn, fmt.Sprint(err))
+						}
+
+						if res == "" {
+							tcp.WriteRESPSimpleString(conn, res)
+						} else {
+							tcp.WriteRESPBulkString(conn, res)
+						}
+
 					default:
 						tcp.WriteArrayResp(conn, []string{})
 
@@ -145,7 +157,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				tcp.WriteRESPSimpleString(conn, "QUEUED")
 				continue
 			} else {
-				tcp.WriteRESPBulkString(conn, config.RedisMap[key])
+				handleIncrCmd(args, config.RedisMap)
 			}
 
 		case "keys":
@@ -304,4 +316,26 @@ func handleSetCmd(args []configuration.RESPValue, cache map[string]string) (stri
 	}
 
 	return "OK", nil
+}
+
+func handleIncrCmd(args []configuration.RESPValue, cache map[string]string) (string, error) {
+	if len(args) != 2 {
+		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+	}
+	key, ok := args[1].Value.(string)
+	if !ok {
+		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
+	}
+	result, exists := cache[key]
+	if !exists {
+		cache[key] = "1"
+	} else {
+		intValue, err := strconv.Atoi(result)
+		if err != nil {
+			return "", fmt.Errorf("ERROR: CANNOT_INCR_NOT_INT")
+		}
+		cache[key] = strconv.Itoa(intValue + 1)
+	}
+
+	return cache[key], nil
 }
