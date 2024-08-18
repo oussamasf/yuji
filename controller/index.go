@@ -100,6 +100,18 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 						tcp.WriteRESPSimpleString(conn, res)
 
+					case "get":
+						res, err := handleGetCmd(session.Args, config.RedisMap)
+						if err != nil {
+							tcp.WriteRESPError(conn, fmt.Sprint(err))
+						}
+
+						if res == "" {
+							tcp.WriteRESPSimpleString(conn, res)
+						} else {
+							tcp.WriteRESPBulkString(conn, res)
+						}
+
 					default:
 						tcp.WriteArrayResp(conn, []string{})
 
@@ -219,27 +231,23 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				continue
 			} else {
 				handleSetCmd(args, config.RedisMap)
-			}
-
-			if !config.IsSlave {
-				WriteCommandSync(replicasConnections, trimmedData)
+				// TODO support for replica in tx
+				if !config.IsSlave {
+					WriteCommandSync(replicasConnections, trimmedData)
+				}
 			}
 
 		case "get":
-			if len(args) != 2 {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+			if txQueue.InvokedTx {
+				session := configuration.TSession{
+					Cmd:  strings.ToLower(cmdName),
+					Args: args,
+				}
+				tcp.WriteRESPSimpleString(conn, "QUEUED")
+				txQueue.Session = append(txQueue.Session, session)
 				continue
-			}
-			key, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-			result := config.RedisMap[key]
-			if result == "" {
-				tcp.WriteRESPBulkString(conn, "")
 			} else {
-				tcp.WriteRESPBulkString(conn, result)
+				handleGetCmd(args, config.RedisMap)
 			}
 
 		default:
@@ -247,6 +255,20 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			return
 		}
 	}
+}
+
+// ? GET
+func handleGetCmd(args []configuration.RESPValue, cache map[string]string) (string, error) {
+
+	if len(args) != 2 {
+		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+	}
+	key, ok := args[1].Value.(string)
+	if !ok {
+		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
+	}
+	result := cache[key]
+	return result, nil
 }
 
 // ? SET
