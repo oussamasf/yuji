@@ -89,72 +89,58 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			if len(txQueue.Session) == 0 {
 				tcp.WriteArrayResp(conn, []string{})
 			} else {
+				results := []string{}
 				for _, session := range txQueue.Session {
 					switch session.Cmd {
 
 					case "set":
 						res, err := handleSetCmd(session.Args, config.RedisMap)
 						if err != nil {
-							tcp.WriteRESPError(conn, fmt.Sprint(err))
+							results = append(results, fmt.Sprint(err))
+							continue
 						}
-
-						tcp.WriteRESPSimpleString(conn, res)
+						results = append(results, res)
+						fmt.Println(results)
+						fmt.Println("after set", results)
 
 					case "get":
 						res, err := handleGetCmd(session.Args, config.RedisMap)
 						if err != nil {
-							tcp.WriteRESPError(conn, fmt.Sprint(err))
+							results = append(results, fmt.Sprint(err))
+							continue
 						}
 
-						if res == "" {
-							tcp.WriteRESPSimpleString(conn, res)
-						} else {
-							tcp.WriteRESPBulkString(conn, res)
-						}
+						results = append(results, res)
+						fmt.Println("after get", results)
 
 					case "incr":
 						res, err := handleIncrCmd(session.Args, config.RedisMap)
 						if err != nil {
-							tcp.WriteRESPError(conn, fmt.Sprint(err))
+							results = append(results, fmt.Sprint(err))
+							continue
 						}
 
-						if res == "" {
-							tcp.WriteRESPSimpleString(conn, res)
-						} else {
-							tcp.WriteRESPBulkString(conn, res)
-						}
+						results = append(results, res)
+						fmt.Println("after incr", results)
 
 					default:
 						tcp.WriteArrayResp(conn, []string{})
-
 					}
 				}
+				fmt.Println(results)
+
+				tcp.WriteArrayResp(conn, results)
+
 			}
 
 		case "incr":
-			if len(args) != 2 {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
-				continue
-			}
-			key, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-			result, exists := config.RedisMap[key]
-			if !exists {
-				config.RedisMap[key] = "1"
-			} else {
-				intValue, err := strconv.Atoi(result)
-				if err != nil {
-					tcp.WriteRESPError(conn, "ERROR: CANNOT_INCR_NOT_INT")
-					continue
-				}
-				config.RedisMap[key] = strconv.Itoa(intValue + 1)
-			}
-
 			if txQueue.InvokedTx {
+				session := configuration.TSession{
+					Cmd:  strings.ToLower(cmdName),
+					Args: args,
+				}
 				tcp.WriteRESPSimpleString(conn, "QUEUED")
+				txQueue.Session = append(txQueue.Session, session)
 				continue
 			} else {
 				handleIncrCmd(args, config.RedisMap)
