@@ -6,7 +6,8 @@ import (
 	"net"
 	"strings"
 
-	"github.com/oussamasf/yuji/utils"
+	configuration "github.com/oussamasf/yuji/config"
+	"github.com/oussamasf/yuji/controller"
 )
 
 func main() {
@@ -14,7 +15,7 @@ func main() {
 	var RSlice []string
 
 	//? Config object to hold all the configuration variables
-	config := &utils.Config{
+	config := &configuration.AppSettings{
 		RedisMap:      make(map[string]string),
 		ExpirationMap: make(map[string]int64),
 		IsSlave:       false,
@@ -22,28 +23,28 @@ func main() {
 
 	//? Parse command-line flags
 	flag.StringVar(&config.Port, "p", "8080", "port")
-	flag.StringVar(&config.ReplicaType, "replicaof", "", "replica of")
+	flag.StringVar(&config.ReplicaAddress, "replicaof", "", "replica of")
 	flag.StringVar(&config.Dir, "dir", "data", "Directory to store RDB file")
 	flag.StringVar(&config.DBFileName, "dbfilename", "dump.rdb", "RDB file name")
 
 	flag.Parse()
 
-	if config.ReplicaType != "" {
-		r = strings.TrimSpace(config.ReplicaType)
+	if config.ReplicaAddress != "" {
+		r = strings.TrimSpace(config.ReplicaAddress)
 		RSlice = strings.Split(r, ":")
 
 		if len(RSlice) != 2 {
 			fmt.Println("INVALID_REPLICA_ARGUMENT")
 			return
 		}
-
-		if RSlice[1] == config.Port {
+		masterHost, masterPort := RSlice[0], RSlice[1]
+		if masterPort == config.Port {
 			fmt.Println("PORT_OF_REPLICA_SHOULD_BE_DIFFERENT_FROM_MASTER")
 			return
 		}
 
 		config.IsSlave = true
-		go utils.HandleReplicaConnection(RSlice[0], RSlice[1], config.Port, config.RedisMap)
+		go controller.HandleReplicaConnection(masterHost, masterPort, config.Port, config.RedisMap)
 	}
 
 	listener, err := net.Listen("tcp", ":"+config.Port)
@@ -56,11 +57,12 @@ func main() {
 
 	for {
 		conn, err := listener.Accept()
+
 		if err != nil {
 			fmt.Println("Error accepting connection:", err)
 			continue
 		}
 
-		go utils.HandleConnection(conn, config)
+		go controller.HandleConnection(conn, config)
 	}
 }
