@@ -78,6 +78,24 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				continue
 			}
 			tcp.WriteRESPSimpleString(conn, "OK")
+		case "type":
+
+			if len(args) != 2 {
+				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+			}
+
+			key, ok := args[1].Value.(string)
+			if !ok {
+				tcp.WriteRESPError(conn, "ERROR: MUST_PROVIDE_KEY")
+				continue
+			}
+
+			if _, exists := config.RedisMap[key]; !exists {
+				tcp.WriteRESPSimpleString(conn, "NONE")
+			} else {
+				tcp.WriteRESPSimpleString(conn, "string")
+			}
+
 		case "multi":
 			txQueue.InvokedTx = true
 			tcp.WriteRESPSimpleString(conn, "OK")
