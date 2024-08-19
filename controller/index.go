@@ -17,11 +17,12 @@ import (
 
 var replicasConnections = []net.Conn{}
 
-var txQueue = configuration.TransactionSettings{
-	InvokedTx: false,
-}
-
 func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
+
+	var txQueue = configuration.TransactionSettings{
+		InvokedTx: false,
+	}
+
 	infoRes := []string{"role:master", "master_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb", "master_repl_offset:0"}
 
 	defer conn.Close()
