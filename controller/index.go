@@ -80,6 +80,14 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 		case "multi":
 			txQueue.InvokedTx = true
 			tcp.WriteRESPSimpleString(conn, "OK")
+		case "discard":
+			if !txQueue.InvokedTx {
+				tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
+				continue
+			}
+			txQueue.Session = []configuration.TSession{}
+			txQueue.InvokedTx = false
+			tcp.WriteRESPSimpleString(conn, "OK")
 
 		case "exec":
 			if !txQueue.InvokedTx {
@@ -88,6 +96,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			}
 			if len(txQueue.Session) == 0 {
 				tcp.WriteArrayResp(conn, []string{})
+				txQueue.InvokedTx = false
 			} else {
 				results := []string{}
 				for _, session := range txQueue.Session {
@@ -100,8 +109,6 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 							continue
 						}
 						results = append(results, res)
-						fmt.Println(results)
-						fmt.Println("after set", results)
 
 					case "get":
 						res, err := handleGetCmd(session.Args, config.RedisMap)
@@ -111,7 +118,6 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						}
 
 						results = append(results, res)
-						fmt.Println("after get", results)
 
 					case "incr":
 						res, err := handleIncrCmd(session.Args, config.RedisMap)
@@ -121,16 +127,14 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						}
 
 						results = append(results, res)
-						fmt.Println("after incr", results)
 
 					default:
 						tcp.WriteArrayResp(conn, []string{})
 					}
 				}
-				fmt.Println(results)
 
 				tcp.WriteArrayResp(conn, results)
-
+				txQueue.InvokedTx = false
 			}
 
 		case "incr":
@@ -143,7 +147,16 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				txQueue.Session = append(txQueue.Session, session)
 				continue
 			} else {
-				handleIncrCmd(args, config.RedisMap)
+
+				res, err := handleIncrCmd(args, config.RedisMap)
+
+				if err != nil {
+					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
+					continue
+				}
+
+				tcp.WriteRESPBulkString(conn, res)
+
 			}
 
 		case "keys":
@@ -228,7 +241,15 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				txQueue.Session = append(txQueue.Session, session)
 				continue
 			} else {
-				handleSetCmd(args, config.RedisMap)
+				_, err := handleSetCmd(args, config.RedisMap)
+
+				if err != nil {
+					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
+					continue
+				}
+
+				tcp.WriteRESPSimpleString(conn, "OK")
+
 				// TODO support for replica in tx
 				if !config.IsSlave {
 					WriteCommandSync(replicasConnections, trimmedData)
@@ -245,6 +266,16 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				txQueue.Session = append(txQueue.Session, session)
 				continue
 			} else {
+
+				res, err := handleGetCmd(args, config.RedisMap)
+
+				if err != nil {
+					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
+					continue
+				}
+
+				tcp.WriteRESPBulkString(conn, res)
+
 				handleGetCmd(args, config.RedisMap)
 			}
 
