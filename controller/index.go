@@ -323,7 +323,46 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
+			if id == "*" {
+				id = fmt.Sprintf("%d-%d", time.Now().UnixMilli(), 0)
+			} else {
+				sequence := strings.Split(id, "-")
 
+				if len(sequence) != 2 {
+					tcp.WriteResponse(conn, "ERROR: Invalid stream id")
+					continue
+				}
+
+				if (sequence[0] == "*") && (sequence[1] == "*") {
+					tcp.WriteResponse(conn, "ERR Invalid stream id")
+					continue
+				}
+
+				if (sequence[0] == "0") && (sequence[1] == "0") {
+					tcp.WriteResponse(conn, "ERR The ID specified in XADD must be greater than 0-0")
+					continue
+				}
+
+				if sequence[1] == "*" {
+					lastIdSequence := strings.Split(stream.LastID, "-")
+					if stream.LastID != "" && (sequence[0] == lastIdSequence[0]) {
+						parsedSeq, err := strconv.ParseInt(lastIdSequence[1], 10, 64)
+
+						if err != nil {
+							tcp.WriteResponse(conn, "ERR Invalid stream id")
+							continue
+						}
+
+						id = fmt.Sprintf("%s-%d", sequence[0], parsedSeq+1)
+					} else {
+						if sequence[0] == "0" {
+							id = fmt.Sprintf("%s-%d", sequence[0], 1)
+						} else {
+							id = fmt.Sprintf("%s-%d", sequence[0], 0)
+						}
+					}
+				}
+			}
 			// ? Compare the new ID with the LastID in the stream
 			if stream.LastID != "" && utils.CompareIDs(stream.LastID, id) >= 0 {
 				tcp.WriteResponse(conn, "ERROR: ERR The ID specified in XADD is equal or smaller than the target stream top item")
