@@ -233,7 +233,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteRESPSimpleString(conn, fmt.Sprintf("FULLRESYNC %s 0", hardCoddedId))
 			time.Sleep(100 * time.Millisecond)
 
-			//? send bulk string of hard coded empty RDB file after full resync
+			//TODO send bulk string of hard coded empty RDB file after full resync
 			emptyRDB := "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 
 			tcp.WriteRESPBulkString(conn, emptyRDB)
@@ -294,6 +294,63 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				handleGetCmd(args, config.RedisMap)
 			}
 
+		case "xadd":
+			stream := make(map[string][]string)
+
+			//? check number of arguments
+			if (len(args)%2 == 0) || (len(args) < 3) {
+				tcp.WriteResponse(conn, "ERROR: Invalid number of stream command arguments")
+				continue
+			}
+
+			//? cast stream key into string
+			streamKey, ok := args[1].Value.(string)
+			if !ok {
+				tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+
+			//? cast stream id into string
+			id, ok := args[2].Value.(string)
+			if !ok {
+				tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+
+			//? cast key-value pair of the steam into string array
+			keyValue := []string{}
+			for _, value := range args[3:] {
+				castValue, ok := value.Value.(string)
+				if !ok {
+					tcp.WriteResponse(conn, "ERROR: unexpected error")
+					continue
+				}
+				keyValue = append(keyValue, castValue)
+			}
+
+			//? if stream is not empty we overwrite the empty stream
+			fmt.Println("config when virgin", config.RedisMap[streamKey].Data)
+			if config.RedisMap[streamKey].Data != "" {
+				stream, err = utils.DeserializeStream(config.RedisMap[streamKey].Data)
+				if err != nil {
+					tcp.WriteResponse(conn, "ERROR: deserialization error")
+					continue
+				}
+			}
+			stream[id] = keyValue
+			fmt.Println("after stream ", stream)
+
+			serializedStream, err := utils.SerializeStream(stream)
+			if err != nil {
+				tcp.WriteResponse(conn, "ERROR: serialization error")
+				continue
+			}
+
+			config.RedisMap[streamKey] = configuration.ICache{
+				Type: configuration.CacheDataType(2),
+				Data: serializedStream,
+			}
+
 		default:
 			tcp.WriteResponse(conn, "ERROR: Unknown command")
 			return
@@ -336,6 +393,7 @@ func handleSetCmd(args []configuration.RESPValue, cache map[string]configuration
 		Type: configuration.CacheDataType(1),
 	}
 
+	// TODO change this to store also px in db
 	if len(args) > 4 {
 		if strings.ToLower(args[3].Value.(string)) == "px" {
 			expiry, err := strconv.Atoi(args[4].Value.(string))

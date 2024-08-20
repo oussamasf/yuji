@@ -1,14 +1,14 @@
 package utils
 
-const (
-	redisMagic          = "REDIS"
-	rdbVersion          = "0009" // Example version 9
-	typeString          = 0x00   // Type for Redis string
-	dbSubsection        = 0xFE   // Start of a database subsection
-	hashTableSizeMarker = 0xFB   // Indicates hash table size information
-	expireMillis        = 0xFC   // Indicates an expire timestamp in milliseconds
-	expireSeconds       = 0xFD   // Indicates an expire timestamp in seconds
-)
+// const (
+// 	redisMagic          = "REDIS"
+// 	rdbVersion          = "0009" // Example version 9
+// 	typeString          = 0x00   // Type for Redis string
+// 	dbSubsection        = 0xFE   // Start of a database subsection
+// 	hashTableSizeMarker = 0xFB   // Indicates hash table size information
+// 	expireMillis        = 0xFC   // Indicates an expire timestamp in milliseconds
+// 	expireSeconds       = 0xFD   // Indicates an expire timestamp in seconds
+// )
 
 // SaveRDBFile saves each key-value pair in the map with the specified format.
 // Parameters:
