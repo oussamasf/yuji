@@ -16,9 +16,8 @@ func main() {
 
 	//? Config object to hold all the configuration variables
 	config := &configuration.AppSettings{
-		RedisMap:      make(map[string]string),
-		ExpirationMap: make(map[string]int64),
-		IsSlave:       false,
+		RedisMap: make(map[string]configuration.ICache),
+		IsSlave:  false,
 	}
 
 	//? Parse command-line flags

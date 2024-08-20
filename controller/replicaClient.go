@@ -15,7 +15,7 @@ import (
 	"github.com/oussamasf/yuji/utils"
 )
 
-func HandleReplicaConnection(masterHost string, masterPort string, replicaPort string, cache map[string]string) {
+func HandleReplicaConnection(masterHost string, masterPort string, replicaPort string, cache map[string]configuration.ICache) {
 	address := fmt.Sprintf("%s:%s", masterHost, masterPort)
 	m, err := net.Dial("tcp", address)
 	if err != nil {
@@ -84,7 +84,9 @@ func HandleReplicaConnection(masterHost string, masterPort string, replicaPort s
 						tcp.WriteRESPError(m, "ERROR: INVALID_ARGUMENT_TYPE")
 						continue
 					}
-					cache[key] = value
+					cache[key] = configuration.ICache{
+						Data: value,
+					}
 
 					if len(args) > 4 {
 

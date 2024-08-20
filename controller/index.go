@@ -71,13 +71,13 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 		}
 
 		switch strings.ToLower(cmdName) {
-		case "save":
-			err := utils.SaveRDBFile(0, config)
-			if err != nil {
-				tcp.WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
-				continue
-			}
-			tcp.WriteRESPSimpleString(conn, "OK")
+		// case "save":
+		// 	err := utils.SaveRDBFile(0, config)
+		// 	if err != nil {
+		// 		tcp.WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
+		// 		continue
+		// 	}
+		// 	tcp.WriteRESPSimpleString(conn, "OK")
 		case "type":
 
 			if len(args) != 2 {
@@ -90,11 +90,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				continue
 			}
 
-			if _, exists := config.RedisMap[key]; !exists {
-				tcp.WriteRESPSimpleString(conn, "NONE")
-			} else {
-				tcp.WriteRESPSimpleString(conn, "string")
-			}
+			tcp.WriteRESPSimpleString(conn, config.RedisMap[key].Type.String())
 
 		case "multi":
 			txQueue.InvokedTx = true
@@ -306,7 +302,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 }
 
 // ? GET
-func handleGetCmd(args []configuration.RESPValue, cache map[string]string) (string, error) {
+func handleGetCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
@@ -316,11 +312,11 @@ func handleGetCmd(args []configuration.RESPValue, cache map[string]string) (stri
 		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
 	}
 	result := cache[key]
-	return result, nil
+	return result.Data, nil
 }
 
 // ? SET
-func handleSetCmd(args []configuration.RESPValue, cache map[string]string) (string, error) {
+func handleSetCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 	if len(args) < 3 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -335,7 +331,10 @@ func handleSetCmd(args []configuration.RESPValue, cache map[string]string) (stri
 		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
 	}
 
-	cache[key] = value
+	cache[key] = configuration.ICache{
+		Data: value,
+		Type: configuration.CacheDataType(1),
+	}
 
 	if len(args) > 4 {
 		if strings.ToLower(args[3].Value.(string)) == "px" {
@@ -354,7 +353,7 @@ func handleSetCmd(args []configuration.RESPValue, cache map[string]string) (stri
 	return "OK", nil
 }
 
-func handleIncrCmd(args []configuration.RESPValue, cache map[string]string) (string, error) {
+func handleIncrCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -364,14 +363,19 @@ func handleIncrCmd(args []configuration.RESPValue, cache map[string]string) (str
 	}
 	result, exists := cache[key]
 	if !exists {
-		cache[key] = "1"
+		cache[key] = configuration.ICache{
+			Data: "1",
+		}
 	} else {
-		intValue, err := strconv.Atoi(result)
+		intValue, err := strconv.Atoi(result.Data)
 		if err != nil {
 			return "", fmt.Errorf("ERROR: CANNOT_INCR_NOT_INT")
 		}
-		cache[key] = strconv.Itoa(intValue + 1)
+		cache[key] = configuration.ICache{
+			Data: strconv.Itoa(intValue + 1),
+		}
+
 	}
 
-	return cache[key], nil
+	return cache[key].Data, nil
 }
