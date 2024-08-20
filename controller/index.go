@@ -295,61 +295,72 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			}
 
 		case "xadd":
-			stream := make(map[string][]string)
+			stream := configuration.IStream{
+				Entries: []configuration.StreamEntry{},
+			}
 
-			//? check number of arguments
+			//? Check number of arguments
 			if (len(args)%2 == 0) || (len(args) < 3) {
 				tcp.WriteResponse(conn, "ERROR: Invalid number of stream command arguments")
 				continue
 			}
 
-			//? cast stream key into string
+			//? Cast stream key into string
 			streamKey, ok := args[1].Value.(string)
 			if !ok {
 				tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 
-			//? cast stream id into string
+			//? Check if the stream already exists in RedisMap
+			if existingCache, found := config.RedisMap[streamKey]; found && existingCache.Type == configuration.Stream {
+				stream = existingCache.StreamData
+			}
+
+			//? Cast stream ID into string
 			id, ok := args[2].Value.(string)
 			if !ok {
 				tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 
-			//? cast key-value pair of the steam into string array
-			keyValue := []string{}
-			for _, value := range args[3:] {
-				castValue, ok := value.Value.(string)
-				if !ok {
-					tcp.WriteResponse(conn, "ERROR: unexpected error")
-					continue
-				}
-				keyValue = append(keyValue, castValue)
-			}
-
-			//? if stream is not empty we overwrite the empty stream
-			fmt.Println("config when virgin", config.RedisMap[streamKey].Data)
-			if config.RedisMap[streamKey].Data != "" {
-				stream, err = utils.DeserializeStream(config.RedisMap[streamKey].Data)
-				if err != nil {
-					tcp.WriteResponse(conn, "ERROR: deserialization error")
-					continue
-				}
-			}
-			stream[id] = keyValue
-			fmt.Println("after stream ", stream)
-
-			serializedStream, err := utils.SerializeStream(stream)
-			if err != nil {
-				tcp.WriteResponse(conn, "ERROR: serialization error")
+			// ? Compare the new ID with the LastID in the stream
+			if stream.LastID != "" && utils.CompareIDs(stream.LastID, id) >= 0 {
+				tcp.WriteResponse(conn, "ERROR: ERR The ID specified in XADD is equal or smaller than the target stream top item")
 				continue
 			}
 
-			config.RedisMap[streamKey] = configuration.ICache{
-				Type: configuration.CacheDataType(2),
-				Data: serializedStream,
+			//? Cast key-value pairs of the stream into a map[string]string
+			keyValue := make(map[string]string)
+			for i := 3; i < len(args); i += 2 {
+				key, ok := args[i].Value.(string)
+				if !ok {
+					tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+					continue
+				}
+				value, ok := args[i+1].Value.(string)
+				if !ok {
+					tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+					continue
+				}
+				keyValue[key] = value
 			}
+
+			//? Append the new stream entry
+			stream.Entries = append(stream.Entries, configuration.StreamEntry{
+				ID:     id,
+				Values: keyValue,
+			})
+
+			//? Store the updated stream back in RedisMap
+			config.RedisMap[streamKey] = configuration.ICache{
+				Type:       configuration.Stream,
+				StreamData: stream,
+			}
+
+			fmt.Println("After updating stream:", stream)
+
+			tcp.WriteRESPBulkString(conn, id)
 
 		default:
 			tcp.WriteResponse(conn, "ERROR: Unknown command")
