@@ -352,6 +352,8 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				Values: keyValue,
 			})
 
+			stream.LastID = id
+
 			//? Store the updated stream back in RedisMap
 			config.RedisMap[streamKey] = configuration.ICache{
 				Type:       configuration.Stream,
