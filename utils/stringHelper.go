@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -102,4 +103,10 @@ func CompareIDs(id1, id2 string) int {
 		return -1
 	}
 	return 0
+}
+
+func IsStreamId(str string) bool {
+	regex := regexp.MustCompile(`^\d+-\d+$`)
+
+	return regex.MatchString(str)
 }
