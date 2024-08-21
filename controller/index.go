@@ -416,9 +416,8 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			id1, _ := args[2].Value.(string)
 			id2, _ := args[3].Value.(string)
 			fmt.Println("ids", id1, id2)
-			fmt.Println("utils.CompareIDs(id1, id2) < 0 ", utils.CompareIDs(id1, id2) < 0)
 
-			if utils.CompareIDs(id1, id2) < 0 {
+			if utils.CompareIDs(id1, id2) > 0 {
 				tcp.WriteRESPError(conn, "ERROR invalid range id")
 				continue
 			}
@@ -434,7 +433,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 			var results []string
 			for _, entry := range entries {
-				if utils.CompareIDs(entry.ID, id1) <= 0 && utils.CompareIDs(entry.ID, id2) >= 0 {
+				if utils.CompareIDs(entry.ID, id1) >= 0 && utils.CompareIDs(entry.ID, id2) <= 0 {
 					values := []string{}
 					for key, value := range entry.Values {
 						values = append(values, key, value)
