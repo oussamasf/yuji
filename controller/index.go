@@ -301,14 +301,14 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 			//? Check number of arguments
 			if (len(args)%2 == 0) || (len(args) < 3) {
-				tcp.WriteResponse(conn, "ERROR: Invalid number of stream command arguments")
+				tcp.WriteRESPError(conn, "ERROR: Invalid number of stream command arguments")
 				continue
 			}
 
 			//? Cast stream key into string
 			streamKey, ok := args[1].Value.(string)
 			if !ok {
-				tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 
@@ -320,7 +320,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			//? Cast stream ID into string
 			id, ok := args[2].Value.(string)
 			if !ok {
-				tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
 			if id == "*" {
@@ -329,17 +329,17 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				sequence := strings.Split(id, "-")
 
 				if len(sequence) != 2 {
-					tcp.WriteResponse(conn, "ERROR: Invalid stream id")
+					tcp.WriteRESPError(conn, "ERROR: Invalid stream id")
 					continue
 				}
 
 				if (sequence[0] == "*") && (sequence[1] == "*") {
-					tcp.WriteResponse(conn, "ERR Invalid stream id")
+					tcp.WriteRESPError(conn, "ERR Invalid stream id")
 					continue
 				}
 
 				if (sequence[0] == "0") && (sequence[1] == "0") {
-					tcp.WriteResponse(conn, "ERR The ID specified in XADD must be greater than 0-0")
+					tcp.WriteRESPError(conn, "ERR The ID specified in XADD must be greater than 0-0")
 					continue
 				}
 
@@ -349,7 +349,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						parsedSeq, err := strconv.ParseInt(lastIdSequence[1], 10, 64)
 
 						if err != nil {
-							tcp.WriteResponse(conn, "ERR Invalid stream id")
+							tcp.WriteRESPError(conn, "ERR Invalid stream id")
 							continue
 						}
 
@@ -365,7 +365,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			}
 			// ? Compare the new ID with the LastID in the stream
 			if stream.LastID != "" && utils.CompareIDs(stream.LastID, id) >= 0 {
-				tcp.WriteResponse(conn, "ERROR: ERR The ID specified in XADD is equal or smaller than the target stream top item")
+				tcp.WriteRESPError(conn, "ERROR: ERR The ID specified in XADD is equal or smaller than the target stream top item")
 				continue
 			}
 
@@ -374,12 +374,12 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			for i := 3; i < len(args); i += 2 {
 				key, ok := args[i].Value.(string)
 				if !ok {
-					tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+					tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 					continue
 				}
 				value, ok := args[i+1].Value.(string)
 				if !ok {
-					tcp.WriteResponse(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+					tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 					continue
 				}
 				keyValue[key] = value
@@ -399,12 +399,56 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				StreamData: stream,
 			}
 
-			fmt.Println("After updating stream:", stream)
-
 			tcp.WriteRESPBulkString(conn, id)
 
+		case "xrange":
+			if len(args) != 4 {
+				tcp.WriteRESPError(conn, "ERROR: Invalid number of stream command arguments")
+				continue
+			}
+
+			streamKey, ok := args[1].Value.(string)
+			if !ok {
+				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+				continue
+			}
+
+			id1, _ := args[2].Value.(string)
+			id2, _ := args[3].Value.(string)
+			fmt.Println("ids", id1, id2)
+			fmt.Println("utils.CompareIDs(id1, id2) < 0 ", utils.CompareIDs(id1, id2) < 0)
+
+			if utils.CompareIDs(id1, id2) < 0 {
+				tcp.WriteRESPError(conn, "ERROR invalid range id")
+				continue
+			}
+			stream, ok := config.RedisMap[streamKey]
+			fmt.Println("stream ", stream)
+
+			if !ok {
+				tcp.WriteResponse(conn, "")
+				continue
+			}
+			entries := stream.StreamData.Entries
+			fmt.Println("entries ", entries)
+
+			var result []string
+			for _, entry := range entries {
+				if utils.CompareIDs(entry.ID, id1) <= 0 && utils.CompareIDs(entry.ID, id2) >= 0 {
+					values := []string{}
+					for key, value := range entry.Values {
+						values = append(values, key, value)
+					}
+
+					result = append(result, utils.NewArrayResp([]string{fmt.Sprintf("$%d\r\n%s\r\n", len(entry.ID), entry.ID), utils.NewArrayResp(values)}))
+				}
+			}
+			fmt.Println("entries ", result)
+
+			tcp.WriteArrayResp(conn, result)
+
 		default:
-			tcp.WriteResponse(conn, "ERROR: Unknown command")
+			tcp.WriteRESPError(conn, "ERROR: Unknown command")
 			return
 		}
 	}
