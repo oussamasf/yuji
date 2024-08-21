@@ -432,7 +432,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			entries := stream.StreamData.Entries
 			fmt.Println("entries ", entries)
 
-			var result []string
+			var results []string
 			for _, entry := range entries {
 				if utils.CompareIDs(entry.ID, id1) <= 0 && utils.CompareIDs(entry.ID, id2) >= 0 {
 					values := []string{}
@@ -440,12 +440,20 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						values = append(values, key, value)
 					}
 
-					result = append(result, utils.NewArrayResp([]string{fmt.Sprintf("$%d\r\n%s\r\n", len(entry.ID), entry.ID), utils.NewArrayResp(values)}))
+					respValues := utils.NewArrayResp(values)
+					idResp := fmt.Sprintf("$%d\r\n%s\r\n", len(entry.ID), entry.ID)
+					valueResp := fmt.Sprintf("*2\r\n%s\r\n%s\r\n", idResp, respValues)
+					results = append(results, valueResp)
 				}
 			}
-			fmt.Println("entries ", result)
+			var builder strings.Builder
+			builder.WriteString(fmt.Sprintf("*%d\r\n", len(results)))
 
-			tcp.WriteArrayResp(conn, result)
+			for _, result := range results {
+				builder.WriteString(result)
+			}
+
+			conn.Write([]byte(builder.String()))
 
 		default:
 			tcp.WriteRESPError(conn, "ERROR: Unknown command")
