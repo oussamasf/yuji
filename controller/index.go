@@ -488,7 +488,6 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 					break
 				}
 			}
-			fmt.Println("streamKeywordIndex", streamKeywordIndex)
 
 			//? Get stream keys
 			streamKeys := []string{}
@@ -500,8 +499,6 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				streamKeys = append(streamKeys, streamKey)
 			}
 
-			fmt.Println("streamKeys", streamKeys)
-
 			//? Get stream ids
 			ids := []string{}
 			for i := streamKeywordIndex + 1 + len(streamKeys); i < len(args); i++ {
@@ -512,8 +509,6 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				}
 				ids = append(ids, id)
 			}
-
-			fmt.Println("ids", ids)
 
 			//? Ensure, have the same number of keys and IDs
 			if len(streamKeys) != len(ids) {
