@@ -412,28 +412,50 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
-
-			id1, _ := args[2].Value.(string)
-			id2, _ := args[3].Value.(string)
-			fmt.Println("ids", id1, id2)
-
-			if utils.CompareIDs(id1, id2) > 0 {
-				tcp.WriteRESPError(conn, "ERROR invalid range id")
-				continue
-			}
 			stream, ok := config.RedisMap[streamKey]
-			fmt.Println("stream ", stream)
 
 			if !ok {
 				tcp.WriteResponse(conn, "")
 				continue
 			}
 			entries := stream.StreamData.Entries
-			fmt.Println("entries ", entries)
 
-			var results []string
+			id1, _ := args[2].Value.(string)
+			id2, _ := args[3].Value.(string)
+
+			if utils.CompareIDs(id1, id2) > 0 {
+				tcp.WriteRESPError(conn, "ERROR invalid range id")
+				continue
+			}
+			results := []string{}
 			for _, entry := range entries {
-				if utils.CompareIDs(entry.ID, id1) >= 0 && utils.CompareIDs(entry.ID, id2) <= 0 {
+				if id2 == "+" {
+					if utils.CompareIDs(entry.ID, id1) >= 0 {
+						values := []string{}
+						for key, value := range entry.Values {
+							values = append(values, key, value)
+						}
+
+						respValues := utils.NewArrayResp(values)
+						idResp := fmt.Sprintf("$%d\r\n%s\r\n", len(entry.ID), entry.ID)
+						valueResp := fmt.Sprintf("*2\r\n%s\r\n%s\r\n", idResp, respValues)
+						results = append(results, valueResp)
+					}
+					continue
+				} else if id1 == "-" {
+					if utils.CompareIDs(entry.ID, id2) <= 0 {
+						values := []string{}
+						for key, value := range entry.Values {
+							values = append(values, key, value)
+						}
+
+						respValues := utils.NewArrayResp(values)
+						idResp := fmt.Sprintf("$%d\r\n%s\r\n", len(entry.ID), entry.ID)
+						valueResp := fmt.Sprintf("*2\r\n%s\r\n%s\r\n", idResp, respValues)
+						results = append(results, valueResp)
+					}
+					continue
+				} else if utils.CompareIDs(entry.ID, id1) >= 0 && utils.CompareIDs(entry.ID, id2) <= 0 {
 					values := []string{}
 					for key, value := range entry.Values {
 						values = append(values, key, value)
