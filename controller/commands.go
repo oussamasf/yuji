@@ -144,3 +144,37 @@ func handleEchoCmd(args []configuration.RESPValue) (string, error) {
 	return msg, nil
 
 }
+
+func handleAddStreamCmd(args []configuration.RESPValue) (string, string, map[string]string, error) {
+	keyValue := make(map[string]string)
+
+	if (len(args)%2 == 0) || (len(args) < 3) {
+		return "", "", keyValue, fmt.Errorf("ERR Invalid number of stream command arguments")
+	}
+
+	streamKey, ok := args[1].Value.(string)
+	if !ok {
+		return "", "", keyValue, fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+	}
+
+	newEntryID, ok := args[2].Value.(string)
+	if !ok {
+		return "", "", keyValue, fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+	}
+
+	for i := 3; i < len(args); i += 2 {
+		key, ok := args[i].Value.(string)
+		if !ok {
+			return "", "", keyValue, fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+		}
+
+		value, ok := args[i+1].Value.(string)
+		if !ok {
+			return "", "", keyValue, fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+
+		}
+		keyValue[key] = value
+	}
+
+	return streamKey, newEntryID, keyValue, nil
+}

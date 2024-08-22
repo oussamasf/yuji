@@ -257,94 +257,33 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			}
 
 		case "xadd":
+
+			streamKey, newEntryID, keyValue, err := handleAddStreamCmd(args)
+
+			if err != nil {
+				tcp.WriteRESPError(conn, err.Error())
+				continue
+			}
+
 			stream := configuration.IStream{
 				Entries: []configuration.StreamEntry{},
 			}
 
-			//? Check number of arguments
-			if (len(args)%2 == 0) || (len(args) < 3) {
-				tcp.WriteRESPError(conn, "ERROR: Invalid number of stream command arguments")
+			newEntryID, err = utils.GenerateStreamID(newEntryID, stream.LastID)
+			if err != nil {
+				tcp.WriteRESPError(conn, err.Error())
 				continue
 			}
 
-			//? Cast stream key into string
-			streamKey, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-
-			//? Check if the stream already exists in RedisMap
-			if existingCache, found := config.RedisMap[streamKey]; found && existingCache.Type == configuration.Stream {
-				stream = existingCache.StreamData
-			}
-
-			//? Cast stream ID into string
-			newEntryID, ok := args[2].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-			if newEntryID == "*" {
-				newEntryID = fmt.Sprintf("%d-%d", time.Now().UnixMilli(), 0)
-			} else {
-				sequence := strings.Split(newEntryID, "-")
-
-				if len(sequence) != 2 {
-					tcp.WriteRESPError(conn, "ERROR: Invalid stream id")
-					continue
-				}
-
-				if (sequence[0] == "*") && (sequence[1] == "*") {
-					tcp.WriteRESPError(conn, "ERR Invalid stream id")
-					continue
-				}
-
-				if (sequence[0] == "0") && (sequence[1] == "0") {
-					tcp.WriteRESPError(conn, "ERR The ID specified in XADD must be greater than 0-0")
-					continue
-				}
-
-				if sequence[1] == "*" {
-					lastIdSequence := strings.Split(stream.LastID, "-")
-					if stream.LastID != "" && (sequence[0] == lastIdSequence[0]) {
-						parsedSeq, err := strconv.ParseInt(lastIdSequence[1], 10, 64)
-
-						if err != nil {
-							tcp.WriteRESPError(conn, "ERR Invalid stream id")
-							continue
-						}
-
-						newEntryID = fmt.Sprintf("%s-%d", sequence[0], parsedSeq+1)
-					} else {
-						if sequence[0] == "0" {
-							newEntryID = fmt.Sprintf("%s-%d", sequence[0], 1)
-						} else {
-							newEntryID = fmt.Sprintf("%s-%d", sequence[0], 0)
-						}
-					}
-				}
-			}
 			// ? Compare the new ID with the LastID in the stream
 			if stream.LastID != "" && utils.CompareIDs(stream.LastID, newEntryID) >= 0 {
 				tcp.WriteRESPError(conn, "ERROR: ERR The ID specified in XADD is equal or smaller than the target stream top item")
 				continue
 			}
 
-			//? Cast key-value pairs of the stream into a map[string]string
-			keyValue := make(map[string]string)
-			for i := 3; i < len(args); i += 2 {
-				key, ok := args[i].Value.(string)
-				if !ok {
-					tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-					continue
-				}
-				value, ok := args[i+1].Value.(string)
-				if !ok {
-					tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-					continue
-				}
-				keyValue[key] = value
+			//? Check if the stream already exists in RedisMap
+			if existingCache, found := config.RedisMap[streamKey]; found && existingCache.Type == configuration.Stream {
+				stream = existingCache.StreamData
 			}
 
 			newEntry := configuration.StreamEntry{
@@ -366,10 +305,10 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				StreamData: stream,
 			}
 
-			// Check if any blocked XRANGE requests should be unblocked
+			//? Check if any blocked XRead requests should be unblocked
 			if blockedRequests, found := blockedStreamRequests[streamKey]; found {
 				for _, request := range blockedRequests {
-					// Check if the new entry's ID is greater than the ID requested
+					//? Check if the new entry's ID is greater than the ID requested
 					for _, requestedID := range request.Ids {
 						if utils.CompareIDs(newEntryID, requestedID) > 0 {
 							go func(conn net.Conn, streamKey, entryID string, entry configuration.StreamEntry) {
