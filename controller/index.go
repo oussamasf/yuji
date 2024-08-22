@@ -57,7 +57,10 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			continue
 		}
 
-		switch strings.ToLower(cmdName) {
+		switch cmdName {
+
+		case "ping":
+			tcp.WriteRESPSimpleString(conn, handlePingCmd())
 		// case "save":
 		// 	err := utils.SaveRDBFile(0, config)
 		// 	if err != nil {
@@ -66,17 +69,10 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 		// 	}
 		// 	tcp.WriteRESPSimpleString(conn, "OK")
 		case "type":
-
-			if len(args) != 2 {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+			key, err := handleTypeCmd(args)
+			if err != nil {
+				tcp.WriteRESPError(conn, err.Error())
 			}
-
-			key, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: MUST_PROVIDE_KEY")
-				continue
-			}
-
 			tcp.WriteRESPSimpleString(conn, config.RedisMap[key].Type.String())
 
 		case "multi":
@@ -170,28 +166,14 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteArrayResp(conn, keys)
 
 		case "config":
-			subcommand, ok := args[1].Value.(string)
-			subcommand = strings.ToLower(subcommand)
-			if !ok && subcommand != "get" {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
+			res, err := handleConfigCmd(args, config.Dir, config.DBFileName)
+
+			if err != nil {
+				tcp.WriteRESPError(conn, err.Error())
 				continue
 			}
 
-			value, ok := args[2].Value.(string)
-			value = strings.ToLower(value)
-
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-
-			if value == "dir" {
-				tcp.WriteArrayResp(conn, []string{"dir", fmt.Sprint(len(config.Dir)), config.Dir})
-			} else if value == "dbfilename" {
-				tcp.WriteArrayResp(conn, []string{"dbfilename", fmt.Sprint(len(config.DBFileName)), config.DBFileName})
-			} else {
-				tcp.WriteRESPError(conn, "ERR unsupported CONFIG parameter")
-			}
+			tcp.WriteArrayResp(conn, res)
 
 		case "info":
 			if config.IsSlave {
@@ -200,16 +182,12 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteResponse(conn, utils.NewBulkString(infoRes))
 
 		case "echo":
-			if len(args) != 2 {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_NUMBER_OF_ARGUMENTS")
+			res, err := handleEchoCmd(args)
+			if err != nil {
+				tcp.WriteRESPError(conn, err.Error())
 				continue
 			}
-			msg, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-			tcp.WriteRESPBulkString(conn, msg)
+			tcp.WriteRESPBulkString(conn, res)
 
 		case "replconf":
 			tcp.WriteRESPSimpleString(conn, "OK")
@@ -229,9 +207,6 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteArrayResp(conn, []string{"replconf", "getack", "*"})
 
 			replicasConnections = append(replicasConnections, conn)
-
-		case "ping":
-			tcp.WriteRESPSimpleString(conn, "PONG")
 
 		case "set":
 			if txQueue.InvokedTx {
@@ -629,84 +604,4 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			return
 		}
 	}
-}
-
-// ? GET
-func handleGetCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
-
-	if len(args) != 2 {
-		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
-	}
-	key, ok := args[1].Value.(string)
-	if !ok {
-		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
-	}
-	result := cache[key]
-	return result.Data, nil
-}
-
-// ? SET
-func handleSetCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
-	if len(args) < 3 {
-		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
-	}
-
-	key, ok := args[1].Value.(string)
-	if !ok {
-		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
-	}
-
-	value, ok := args[2].Value.(string)
-	if !ok {
-		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
-	}
-
-	cache[key] = configuration.ICache{
-		Data: value,
-		Type: configuration.CacheDataType(1),
-	}
-
-	// TODO change this to store also px in db
-	if len(args) > 4 {
-		if strings.ToLower(args[3].Value.(string)) == "px" {
-			expiry, err := strconv.Atoi(args[4].Value.(string))
-			if err != nil {
-				return "", fmt.Errorf("ERROR: INVALID_PX")
-			}
-			time.AfterFunc(time.Duration(expiry)*time.Millisecond, func() {
-				delete(cache, key)
-			})
-		} else {
-			return "", fmt.Errorf("ERROR: INVALID_ARGUMENT")
-		}
-	}
-
-	return "OK", nil
-}
-
-func handleIncrCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
-	if len(args) != 2 {
-		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
-	}
-	key, ok := args[1].Value.(string)
-	if !ok {
-		return "", fmt.Errorf("ERROR: INVALID_ARGUMENT_TYPE")
-	}
-	result, exists := cache[key]
-	if !exists {
-		cache[key] = configuration.ICache{
-			Data: "1",
-		}
-	} else {
-		intValue, err := strconv.Atoi(result.Data)
-		if err != nil {
-			return "", fmt.Errorf("ERROR: CANNOT_INCR_NOT_INT")
-		}
-		cache[key] = configuration.ICache{
-			Data: strconv.Itoa(intValue + 1),
-		}
-
-	}
-
-	return cache[key].Data, nil
 }
