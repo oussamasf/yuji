@@ -17,6 +17,16 @@ import (
 
 var replicasConnections = []net.Conn{}
 
+var blockedStreamRequests = make(map[string][]*BlockedRequest)
+
+type BlockedRequest struct {
+	Conn       net.Conn
+	StreamKeys []string
+	Ids        []string
+	BlockTime  time.Duration
+	StartTime  time.Time
+}
+
 func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 	var txQueue = configuration.TransactionSettings{
@@ -318,15 +328,15 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			}
 
 			//? Cast stream ID into string
-			id, ok := args[2].Value.(string)
+			newEntryID, ok := args[2].Value.(string)
 			if !ok {
 				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
 				continue
 			}
-			if id == "*" {
-				id = fmt.Sprintf("%d-%d", time.Now().UnixMilli(), 0)
+			if newEntryID == "*" {
+				newEntryID = fmt.Sprintf("%d-%d", time.Now().UnixMilli(), 0)
 			} else {
-				sequence := strings.Split(id, "-")
+				sequence := strings.Split(newEntryID, "-")
 
 				if len(sequence) != 2 {
 					tcp.WriteRESPError(conn, "ERROR: Invalid stream id")
@@ -353,18 +363,18 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 							continue
 						}
 
-						id = fmt.Sprintf("%s-%d", sequence[0], parsedSeq+1)
+						newEntryID = fmt.Sprintf("%s-%d", sequence[0], parsedSeq+1)
 					} else {
 						if sequence[0] == "0" {
-							id = fmt.Sprintf("%s-%d", sequence[0], 1)
+							newEntryID = fmt.Sprintf("%s-%d", sequence[0], 1)
 						} else {
-							id = fmt.Sprintf("%s-%d", sequence[0], 0)
+							newEntryID = fmt.Sprintf("%s-%d", sequence[0], 0)
 						}
 					}
 				}
 			}
 			// ? Compare the new ID with the LastID in the stream
-			if stream.LastID != "" && utils.CompareIDs(stream.LastID, id) >= 0 {
+			if stream.LastID != "" && utils.CompareIDs(stream.LastID, newEntryID) >= 0 {
 				tcp.WriteRESPError(conn, "ERROR: ERR The ID specified in XADD is equal or smaller than the target stream top item")
 				continue
 			}
@@ -385,13 +395,18 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				keyValue[key] = value
 			}
 
+			newEntry := configuration.StreamEntry{
+				ID:     newEntryID,
+				Values: keyValue,
+			}
+
 			//? Append the new stream entry
 			stream.Entries = append(stream.Entries, configuration.StreamEntry{
-				ID:     id,
+				ID:     newEntryID,
 				Values: keyValue,
 			})
 
-			stream.LastID = id
+			stream.LastID = newEntryID
 
 			//? Store the updated stream back in RedisMap
 			config.RedisMap[streamKey] = configuration.ICache{
@@ -399,7 +414,163 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				StreamData: stream,
 			}
 
-			tcp.WriteRESPBulkString(conn, id)
+			// Check if any blocked XRANGE requests should be unblocked
+			if blockedRequests, found := blockedStreamRequests[streamKey]; found {
+				for _, request := range blockedRequests {
+					// Check if the new entry's ID is greater than the ID requested
+					for _, requestedID := range request.Ids {
+						if utils.CompareIDs(newEntryID, requestedID) > 0 {
+							go func(conn net.Conn, streamKey, entryID string, entry configuration.StreamEntry) {
+								values := []string{}
+								for key, value := range entry.Values {
+									values = append(values, fmt.Sprintf("$%d\r\n%s\r\n", len(key), key), fmt.Sprintf("$%d\r\n%s\r\n", len(value), value))
+								}
+								entryResp := fmt.Sprintf("*%d\r\n$%d\r\n%s\r\n*%d\r\n%s", 2, len(entryID), entryID, len(values)/2, strings.Join(values, ""))
+
+								keyResp := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n*%d\r\n%s", len(streamKey), streamKey, 1, entryResp)
+								conn.Write([]byte(keyResp))
+							}(request.Conn, streamKey, newEntryID, newEntry)
+
+							break
+						}
+					}
+				}
+			}
+
+			tcp.WriteRESPBulkString(conn, newEntryID)
+
+		case "xread":
+
+			var streamKeywordIndex int
+			var blockTime time.Duration
+			var blockRequested bool
+
+			for i, arg := range args {
+				subcommand, _ := arg.Value.(string)
+
+				if strings.ToLower(subcommand) == "block" {
+					blockValueStr, _ := args[i+1].Value.(string)
+					blockTimeInt, err := strconv.ParseInt(blockValueStr, 10, 64)
+					if err != nil {
+						tcp.WriteRESPError(conn, "ERR Invalid block value")
+						return
+					}
+
+					blockTime = time.Duration(blockTimeInt) * time.Millisecond
+					blockRequested = true
+				}
+
+				if strings.ToLower(subcommand) == "streams" {
+					streamKeywordIndex = i
+					break
+				}
+			}
+
+			// Get stream keys
+			streamKeys := []string{}
+			for i := streamKeywordIndex + 1; i < len(args); i++ {
+				streamKey, ok := args[i].Value.(string)
+				if !ok || utils.IsStreamId(streamKey) {
+					break
+				}
+				streamKeys = append(streamKeys, streamKey)
+			}
+
+			// Get stream ids
+			ids := []string{}
+			for i := streamKeywordIndex + 1 + len(streamKeys); i < len(args); i++ {
+				id, ok := args[i].Value.(string)
+				if !ok || !utils.IsStreamId(id) {
+					tcp.WriteRESPError(conn, "ERROR: INVALID_ID_TYPE")
+					return
+				}
+				ids = append(ids, id)
+			}
+
+			// Ensure, have the same number of keys and IDs
+			if len(streamKeys) != len(ids) {
+				tcp.WriteRESPError(conn, "ERROR: MISMATCHED_KEYS_AND_IDS")
+				return
+			}
+
+			results := []string{}
+			for i, streamKey := range streamKeys {
+				// Check if the stream exists
+				stream, ok := config.RedisMap[streamKey]
+				if !ok {
+					continue
+				}
+
+				entries := stream.StreamData.Entries
+				id := ids[i]
+
+				streamResult := []string{}
+				for _, entry := range entries {
+					if utils.CompareIDs(entry.ID, id) > 0 {
+						values := []string{}
+						for key, value := range entry.Values {
+							values = append(values, fmt.Sprintf("$%d\r\n%s\r\n", len(key), key), fmt.Sprintf("$%d\r\n%s\r\n", len(value), value))
+						}
+
+						entryResp := fmt.Sprintf("*%d\r\n$%d\r\n%s\r\n*%d\r\n%s", 2, len(entry.ID), entry.ID, len(values)/2, strings.Join(values, ""))
+						streamResult = append(streamResult, entryResp)
+					}
+				}
+
+				// Wrap the stream key and its entries
+				if len(streamResult) > 0 {
+					keyResp := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n*%d\r\n%s", len(streamKey), streamKey, len(streamResult), strings.Join(streamResult, ""))
+					results = append(results, keyResp)
+				}
+			}
+
+			if len(results) > 0 {
+				//? If results are found, send them immediately
+				var builder strings.Builder
+				builder.WriteString(fmt.Sprintf("*%d\r\n", len(results)))
+				for _, result := range results {
+					builder.WriteString(result)
+				}
+
+				conn.Write([]byte(builder.String()))
+			} else if blockRequested {
+				//? Handle blocking behavior
+				blockedRequest := &BlockedRequest{
+					Conn:       conn,
+					StreamKeys: streamKeys,
+					Ids:        ids,
+					BlockTime:  blockTime,
+					StartTime:  time.Now(),
+				}
+
+				for _, streamKey := range streamKeys {
+					blockedStreamRequests[streamKey] = append(blockedStreamRequests[streamKey], blockedRequest)
+				}
+
+				if blockTime > 0 {
+					go func() {
+						time.Sleep(blockTime)
+						for _, streamKey := range streamKeys {
+							if requests, found := blockedStreamRequests[streamKey]; found {
+								for i, req := range requests {
+									if req == blockedRequest {
+										tcp.WriteRESPError(conn, "BLOCK timeout expired")
+										blockedStreamRequests[streamKey] = append(requests[:i], requests[i+1:]...)
+										break
+									}
+								}
+							}
+						}
+					}()
+				} else if blockTime == 0 {
+					go func() {
+						time.Sleep(time.Duration(1<<63 - 1))
+					}()
+
+				}
+			} else {
+				conn.Write([]byte("*0\r\n"))
+			}
 
 		case "xrange":
 			if len(args) != 4 {
@@ -470,87 +641,6 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			var builder strings.Builder
 			builder.WriteString(fmt.Sprintf("*%d\r\n", len(results)))
 
-			for _, result := range results {
-				builder.WriteString(result)
-			}
-
-			conn.Write([]byte(builder.String()))
-
-		case "xread":
-
-			var streamKeywordIndex int
-			for i, arg := range args {
-				subcommand, _ := arg.Value.(string)
-
-				if strings.ToLower(subcommand) == "streams" {
-					fmt.Println("i", i)
-					streamKeywordIndex = i
-					break
-				}
-			}
-
-			//? Get stream keys
-			streamKeys := []string{}
-			for i := streamKeywordIndex + 1; i < len(args); i++ {
-				streamKey, ok := args[i].Value.(string)
-				if !ok || utils.IsStreamId(streamKey) {
-					break
-				}
-				streamKeys = append(streamKeys, streamKey)
-			}
-
-			//? Get stream ids
-			ids := []string{}
-			for i := streamKeywordIndex + 1 + len(streamKeys); i < len(args); i++ {
-				id, ok := args[i].Value.(string)
-				if !ok || !utils.IsStreamId(id) {
-					tcp.WriteRESPError(conn, "ERROR: INVALID_ID_TYPE")
-					return
-				}
-				ids = append(ids, id)
-			}
-
-			//? Ensure, have the same number of keys and IDs
-			if len(streamKeys) != len(ids) {
-				tcp.WriteRESPError(conn, "ERROR: MISMATCHED_KEYS_AND_IDS")
-				return
-			}
-
-			results := []string{}
-			for i, streamKey := range streamKeys {
-				//? Check if the stream exists
-				stream, ok := config.RedisMap[streamKey]
-				if !ok {
-					continue
-				}
-
-				entries := stream.StreamData.Entries
-				id := ids[i]
-
-				streamResult := []string{}
-
-				for _, entry := range entries {
-					if utils.CompareIDs(entry.ID, id) > 0 {
-						values := []string{}
-						for key, value := range entry.Values {
-							values = append(values, fmt.Sprintf("$%d\r\n%s\r\n", len(key), key), fmt.Sprintf("$%d\r\n%s\r\n", len(value), value))
-						}
-
-						entryResp := fmt.Sprintf("*%d\r\n$%d\r\n%s\r\n*%d\r\n%s", 2, len(entry.ID), entry.ID, len(values)/2, strings.Join(values, ""))
-						streamResult = append(streamResult, entryResp)
-					}
-				}
-
-				//? Wrap the stream key and its entries
-				if len(streamResult) > 0 {
-					keyResp := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n*%d\r\n%s", len(streamKey), streamKey, len(streamResult), strings.Join(streamResult, ""))
-					results = append(results, keyResp)
-				}
-			}
-
-			//? Building the overall response
-			var builder strings.Builder
-			builder.WriteString(fmt.Sprintf("*%d\r\n", len(results)))
 			for _, result := range results {
 				builder.WriteString(result)
 			}
