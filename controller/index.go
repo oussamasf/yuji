@@ -49,34 +49,11 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			break
 		}
 		trimmedData := bytes.TrimRight(data[:n], "\x00")
-		formattedInput := strings.ReplaceAll(string(trimmedData), "\\r\\n", "\r\n")
 
-		commands, err := utils.Parser(formattedInput)
+		cmdName, args, err := validateCommand(trimmedData)
 
 		if err != nil {
-			tcp.WriteRESPError(conn, "ERROR: Invalid command")
-			continue
-		}
-
-		if commands.Type != '*' {
-			tcp.WriteRESPError(conn, "ERROR: Expected array for command")
-			continue
-		}
-
-		args, ok := commands.Value.([]configuration.RESPValue)
-		if !ok {
-			tcp.WriteRESPError(conn, "ERROR: Invalid command format")
-			continue
-		}
-
-		if len(args) < 1 {
-			tcp.WriteRESPError(conn, "ERROR: No command given")
-			continue
-		}
-
-		cmdName, ok := args[0].Value.(string)
-		if !ok {
-			tcp.WriteRESPError(conn, "ERROR: Invalid command name")
+			tcp.WriteRESPError(conn, err.Error())
 			continue
 		}
 
