@@ -2,7 +2,9 @@ package utils
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +12,16 @@ import (
 
 	configuration "github.com/oussamasf/yuji/config"
 )
+
+func ReadRDBFile(config *configuration.AppSettings) string {
+	filePath := filepath.Join(config.Dir, config.DBFileName)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Fatalf("Error reading RDB file: %v", err)
+	}
+
+	return hex.EncodeToString(data)
+}
 
 func SaveRDBFile(config *configuration.AppSettings) error {
 	if _, err := os.Stat(config.Dir); os.IsNotExist(err) {
