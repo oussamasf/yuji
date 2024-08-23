@@ -257,7 +257,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 		case "xadd":
 
-			streamKey, rawEntryID, keyValue, err := ParseAddStreamArgs(args)
+			streamKey, rawEntryID, keyValue, err := parseAddStreamArgs(args)
 
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
@@ -397,35 +397,29 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			}
 
 		case "xrange":
-			if len(args) != 4 {
-				tcp.WriteRESPError(conn, "ERROR: Invalid number of stream command arguments")
+			startRangeID, endRangeID, streamKey, err := parseRangeStreamArgs(args)
+			if err != nil {
+				tcp.WriteResponse(conn, err.Error())
 				continue
 			}
 
-			streamKey, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
 			stream, ok := config.RedisMap[streamKey]
-
 			if !ok {
 				tcp.WriteResponse(conn, "")
 				continue
 			}
+
 			entries := stream.StreamData.Entries
 
-			id1, _ := args[2].Value.(string)
-			id2, _ := args[3].Value.(string)
-
-			if utils.CompareIDs(id1, id2) > 0 {
+			if utils.CompareIDs(startRangeID, endRangeID) > 0 {
 				tcp.WriteRESPError(conn, "ERROR invalid range id")
 				continue
 			}
+
 			results := []string{}
 			for _, entry := range entries {
-				if id2 == "+" {
-					if utils.CompareIDs(entry.ID, id1) >= 0 {
+				if endRangeID == "+" {
+					if utils.CompareIDs(entry.ID, startRangeID) >= 0 {
 						values := []string{}
 						for key, value := range entry.Values {
 							values = append(values, key, value)
@@ -437,8 +431,9 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						results = append(results, valueResp)
 					}
 					continue
-				} else if id1 == "-" {
-					if utils.CompareIDs(entry.ID, id2) <= 0 {
+				}
+				if startRangeID == "-" {
+					if utils.CompareIDs(entry.ID, endRangeID) <= 0 {
 						values := []string{}
 						for key, value := range entry.Values {
 							values = append(values, key, value)
@@ -450,7 +445,8 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						results = append(results, valueResp)
 					}
 					continue
-				} else if utils.CompareIDs(entry.ID, id1) >= 0 && utils.CompareIDs(entry.ID, id2) <= 0 {
+				}
+				if utils.CompareIDs(entry.ID, startRangeID) >= 0 && utils.CompareIDs(entry.ID, endRangeID) <= 0 {
 					values := []string{}
 					for key, value := range entry.Values {
 						values = append(values, key, value)

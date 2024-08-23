@@ -146,7 +146,7 @@ func parseEchoArgs(args []configuration.RESPValue) (string, error) {
 
 }
 
-func ParseAddStreamArgs(args []configuration.RESPValue) (string, string, map[string]string, error) {
+func parseAddStreamArgs(args []configuration.RESPValue) (string, string, map[string]string, error) {
 	keyValue := make(map[string]string)
 
 	if (len(args)%2 == 0) || (len(args) < 3) {
@@ -262,4 +262,20 @@ func generateReadStreamResponse(ids []string, streamKeys []string, config *confi
 		}
 	}
 	return results
+}
+
+func parseRangeStreamArgs(args []configuration.RESPValue) (string, string, string, error) {
+	if len(args) != 4 {
+		return "", "", "", fmt.Errorf("ERR Invalid number of stream command arguments")
+	}
+
+	streamKey, ok := args[1].Value.(string)
+	if !ok {
+		return "", "", "", fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+	}
+
+	startRangeID, _ := args[2].Value.(string)
+	endRangeID, _ := args[3].Value.(string)
+
+	return startRangeID, endRangeID, streamKey, nil
 }
