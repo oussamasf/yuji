@@ -89,10 +89,10 @@ func parseSetArgs(args []configuration.RESPValue, cache map[string]configuration
 		Type: configuration.CacheDataType(1),
 	}
 
-	// TODO change this to store also px in db
 	if len(args) > 4 {
 		if strings.ToLower(args[3].Value.(string)) == "px" {
 			expiry, err := strconv.Atoi(args[4].Value.(string))
+			cache[key] = configuration.ICache{ExpirationMap: fmt.Sprintf("%d", expiry)}
 			if err != nil {
 				return "", fmt.Errorf("ERROR: INVALID_PX")
 			}
