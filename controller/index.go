@@ -377,7 +377,9 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 							if requests, found := blockedStreamRequests[streamKey]; found {
 								for i, req := range requests {
 									if req == blockedRequest {
-										tcp.WriteRESPError(conn, "BLOCK timeout expired")
+										if len(results) == 0 {
+											conn.Write([]byte("$-1\r\n"))
+										}
 										blockedStreamRequests[streamKey] = append(requests[:i], requests[i+1:]...)
 										break
 									}
@@ -391,7 +393,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 					}()
 				}
 			} else {
-				conn.Write([]byte("*0\r\n"))
+				conn.Write([]byte("$-1\r\n"))
 			}
 
 		case "xrange":
