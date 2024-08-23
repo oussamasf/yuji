@@ -182,11 +182,8 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteResponse(conn, utils.NewBulkString(infoRes))
 
 		case "echo":
-			res, err := parseEchoArgs(args)
-			if err != nil {
-				tcp.WriteRESPError(conn, err.Error())
-				continue
-			}
+			res := parseEchoArgs(args)
+
 			tcp.WriteRESPBulkString(conn, res)
 
 		case "replconf":

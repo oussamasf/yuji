@@ -134,16 +134,14 @@ func parseConfigArgs(args []configuration.RESPValue, dir string, db string) ([]s
 	}
 }
 
-func parseEchoArgs(args []configuration.RESPValue) (string, error) {
-	if len(args) != 2 {
-		return "", fmt.Errorf("ERR INVALID_NUMBER_OF_ARGUMENTS")
+func parseEchoArgs(args []configuration.RESPValue) string {
+	var echoStr []string
+	for _, arg := range args[1:] {
+		echoStr = append(echoStr, arg.Value.(string))
 	}
-	msg, ok := args[1].Value.(string)
-	if !ok {
-		return "", fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
-	}
-	return msg, nil
+	msg := strings.Join(echoStr, " ")
 
+	return msg
 }
 
 func parseAddStreamArgs(args []configuration.RESPValue) (string, string, map[string]string, error) {
