@@ -59,7 +59,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 		switch cmdName {
 
 		case "ping":
-			tcp.WriteRESPSimpleString(conn, handlePingCmd())
+			tcp.WriteRESPSimpleString(conn, parsePingArgs())
 		// case "save":
 		// 	err := utils.SaveRDBFile(0, config)
 		// 	if err != nil {
@@ -68,7 +68,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 		// 	}
 		// 	tcp.WriteRESPSimpleString(conn, "OK")
 		case "type":
-			key, err := handleTypeCmd(args)
+			key, err := parseTypeArgs(args)
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
 			}
@@ -100,7 +100,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 					switch session.Cmd {
 
 					case "set":
-						res, err := handleSetCmd(session.Args, config.RedisMap)
+						res, err := parseSetArgs(session.Args, config.RedisMap)
 						if err != nil {
 							results = append(results, fmt.Sprint(err))
 							continue
@@ -108,7 +108,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						results = append(results, res)
 
 					case "get":
-						res, err := handleGetCmd(session.Args, config.RedisMap)
+						res, err := parseGetArgs(session.Args, config.RedisMap)
 						if err != nil {
 							results = append(results, fmt.Sprint(err))
 							continue
@@ -117,7 +117,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						results = append(results, res)
 
 					case "incr":
-						res, err := handleIncrCmd(session.Args, config.RedisMap)
+						res, err := ParseIncrArgs(session.Args, config.RedisMap)
 						if err != nil {
 							results = append(results, fmt.Sprint(err))
 							continue
@@ -145,7 +145,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				continue
 			} else {
 
-				res, err := handleIncrCmd(args, config.RedisMap)
+				res, err := ParseIncrArgs(args, config.RedisMap)
 
 				if err != nil {
 					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
@@ -165,7 +165,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteArrayResp(conn, keys)
 
 		case "config":
-			res, err := handleConfigCmd(args, config.Dir, config.DBFileName)
+			res, err := parseConfigArgs(args, config.Dir, config.DBFileName)
 
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
@@ -181,7 +181,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteResponse(conn, utils.NewBulkString(infoRes))
 
 		case "echo":
-			res, err := handleEchoCmd(args)
+			res, err := parseEchoArgs(args)
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
 				continue
@@ -217,7 +217,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				txQueue.Session = append(txQueue.Session, session)
 				continue
 			} else {
-				_, err := handleSetCmd(args, config.RedisMap)
+				_, err := parseSetArgs(args, config.RedisMap)
 
 				if err != nil {
 					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
@@ -243,7 +243,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				continue
 			} else {
 
-				res, err := handleGetCmd(args, config.RedisMap)
+				res, err := parseGetArgs(args, config.RedisMap)
 
 				if err != nil {
 					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
@@ -252,12 +252,12 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 				tcp.WriteRESPBulkString(conn, res)
 
-				handleGetCmd(args, config.RedisMap)
+				parseGetArgs(args, config.RedisMap)
 			}
 
 		case "xadd":
 
-			streamKey, rawEntryID, keyValue, err := handleAddStreamCmd(args)
+			streamKey, rawEntryID, keyValue, err := ParseAddStreamArgs(args)
 
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
@@ -333,7 +333,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 			ids, streamKeys, blockRequested, blockTime, nil := parseReadStreamArgs(args)
 			if err != nil {
-				tcp.WriteRESPError(conn, err.Error())
+				tcp.WriteRESPError(conn, "Err error while parsing arguments")
 				continue
 			}
 

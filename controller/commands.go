@@ -10,11 +10,11 @@ import (
 	"github.com/oussamasf/yuji/utils"
 )
 
-func handlePingCmd() string {
+func parsePingArgs() string {
 	return "PONG"
 }
 
-func handleTypeCmd(args []configuration.RESPValue) (string, error) {
+func parseTypeArgs(args []configuration.RESPValue) (string, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERR INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -27,7 +27,7 @@ func handleTypeCmd(args []configuration.RESPValue) (string, error) {
 	return key, nil
 }
 
-func handleIncrCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
+func ParseIncrArgs(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -55,7 +55,7 @@ func handleIncrCmd(args []configuration.RESPValue, cache map[string]configuratio
 }
 
 // ? GET
-func handleGetCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
+func parseGetArgs(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
@@ -69,7 +69,7 @@ func handleGetCmd(args []configuration.RESPValue, cache map[string]configuration
 }
 
 // ? SET
-func handleSetCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
+func parseSetArgs(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 	if len(args) < 3 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -107,7 +107,7 @@ func handleSetCmd(args []configuration.RESPValue, cache map[string]configuration
 	return "OK", nil
 }
 
-func handleConfigCmd(args []configuration.RESPValue, dir string, db string) ([]string, error) {
+func parseConfigArgs(args []configuration.RESPValue, dir string, db string) ([]string, error) {
 	subcommand, ok := args[1].Value.(string)
 	subcommand = strings.ToLower(subcommand)
 	if !ok && subcommand != "get" {
@@ -134,7 +134,7 @@ func handleConfigCmd(args []configuration.RESPValue, dir string, db string) ([]s
 	}
 }
 
-func handleEchoCmd(args []configuration.RESPValue) (string, error) {
+func parseEchoArgs(args []configuration.RESPValue) (string, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERR INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -146,7 +146,7 @@ func handleEchoCmd(args []configuration.RESPValue) (string, error) {
 
 }
 
-func handleAddStreamCmd(args []configuration.RESPValue) (string, string, map[string]string, error) {
+func ParseAddStreamArgs(args []configuration.RESPValue) (string, string, map[string]string, error) {
 	keyValue := make(map[string]string)
 
 	if (len(args)%2 == 0) || (len(args) < 3) {
