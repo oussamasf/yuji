@@ -1,95 +1,85 @@
 package utils
 
-// const (
-// 	redisMagic          = "REDIS"
-// 	rdbVersion          = "0009" // Example version 9
-// 	typeString          = 0x00   // Type for Redis string
-// 	dbSubsection        = 0xFE   // Start of a database subsection
-// 	hashTableSizeMarker = 0xFB   // Indicates hash table size information
-// 	expireMillis        = 0xFC   // Indicates an expire timestamp in milliseconds
-// 	expireSeconds       = 0xFD   // Indicates an expire timestamp in seconds
-// )
+import (
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
 
-// SaveRDBFile saves each key-value pair in the map with the specified format.
-// Parameters:
-// - filePath: the path where the RDB file should be saved.
-// - dbIndex: the logical Redis database index (usually an integer like 0).
-// - data: the hashmap containing the keys and their associated values.
-// - expirations: map of keys with expiration times, in Unix milliseconds or seconds.
-// func SaveRDBFile(dbIndex int, config *configuration.AppSettings) error {
-// 	var buf bytes.Buffer
+	configuration "github.com/oussamasf/yuji/config"
+)
 
-// 	//? Write the Redis RDB header
-// 	buf.WriteString(redisMagic)
-// 	buf.WriteString(rdbVersion)
+func ReadRDBFile(config *configuration.AppSettings) string {
+	filePath := filepath.Join(config.Dir, config.DBFileName)
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Fatalf("Error reading RDB file: %v", err)
+	}
 
-// 	//? Write the database subsection
-// 	buf.WriteByte(dbSubsection)
-// 	buf.WriteByte(byte(dbIndex))
+	return hex.EncodeToString(data)
+}
 
-//? Write hash table size information
-// buf.WriteByte(hashTableSizeMarker)
-// writeLength(&buf, len(config.RedisMap))      // Hash table size (number of key-value pairs)
-// writeLength(&buf, len(config.ExpirationMap)) // Expiration hash table size
+func SaveRDBFile(config *configuration.AppSettings) error {
+	if _, err := os.Stat(config.Dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(config.Dir, 0755); err != nil {
+			return err
+		}
+	}
 
-// //? Write each key-value pair
-// for key, value := range config.RedisMap {
-// 	//? Check if the key has an expiration
-// 	if expiration, exists := config.ExpirationMap[key]; exists {
-// 		//? Write either milliseconds or seconds expiration
-// 		if isMillis(expiration) {
-// 			buf.WriteByte(expireMillis)
-// 			binary.Write(&buf, binary.LittleEndian, uint64(expiration))
-// 		} else {
-// 			buf.WriteByte(expireSeconds)
-// 			binary.Write(&buf, binary.LittleEndian, uint32(expiration))
-// 		}
-// 	}
+	fullPath := filepath.Join(config.Dir, config.DBFileName)
 
-// 	//? Write the key-value pair
-// 	buf.WriteByte(typeString)
-// 	writeLengthPrefixedString(&buf, key)
-// writeLengthPrefixedString(&buf, value)
-// }
+	file, err := os.Create(fullPath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %v", err)
+	}
+	defer file.Close()
 
-//? Write the RDB footer (checksum and EOF marker)
-// checksum := crc64.Checksum(buf.Bytes(), crc64.MakeTable(crc64.ISO))
-// binary.Write(&buf, binary.LittleEndian, checksum)
-// buf.WriteByte(0xFF) // EOF marker
+	//? Write database subsection start
+	file.Write([]byte{0xFE, 0x00})
 
-//? Save the RDB file
+	//? Write hash table sizes
+	file.Write([]byte{0xFB})
+	writeSize(file, uint64(len(config.RedisMap)))
+	writeSize(file, uint64(len(config.RedisMap)))
 
-//? Check if the directory exists
-// if _, err := os.Stat(config.Dir); os.IsNotExist(err) {
-// 	if err := os.MkdirAll(config.Dir, 0755); err != nil {
-// 		return err
-// 	}
-// }
+	//? Write key-value pairs
+	for key, value := range config.RedisMap {
+		//? Write string type flag
+		file.Write([]byte{0x00})
 
-// fullPath := filepath.Join(config.Dir, config.DBFileName)
-// return os.WriteFile(fullPath, buf.Bytes(), 0644)
-// }
+		writeString(file, key)
 
-// // ? Helper function to determine if expiration is in milliseconds
-// func isMillis(expiration int64) bool {
-// 	return expiration > time.Now().Unix()*1000
-// }
+		writeString(file, value.Data)
 
-// // ? Helper function to write a length-prefixed string
-// func writeLengthPrefixedString(buf *bytes.Buffer, str string) {
-// 	writeLength(buf, len(str))
-// 	buf.WriteString(str)
-// }
+		//? Write expire if exists
+		expireMs, err := strconv.ParseInt(config.RedisMap[key].ExpirationMap, 10, 64)
 
-// // ? Helper function to write lengths based on the RDB encoding scheme
-// func writeLength(buf *bytes.Buffer, length int) {
-// 	if length < 0x80 {
-// 		buf.WriteByte(byte(length))
-// 	} else if length < 0x4000 {
-// 		buf.WriteByte(byte((length >> 8) | 0x80))
-// 		buf.WriteByte(byte(length & 0xFF))
-// 	} else {
-// 		buf.WriteByte(0xC0)
-// 		binary.Write(buf, binary.BigEndian, uint32(length))
-// 	}
-// }
+		if err == nil {
+			expirationTime := time.Unix(0, expireMs*int64(time.Millisecond))
+			now := time.Now()
+			if expirationTime.Sub(now) > 1000*time.Hour {
+				file.Write([]byte{0xFC})
+				binary.Write(file, binary.LittleEndian, uint64(expirationTime.UnixNano()/1e6))
+			} else {
+				file.Write([]byte{0xFD})
+				binary.Write(file, binary.LittleEndian, uint32(expirationTime.Unix()))
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func writeSize(file *os.File, size uint64) {
+	binary.Write(file, binary.BigEndian, size)
+}
+
+func writeString(file *os.File, s string) {
+	writeSize(file, uint64(len(s)))
+	file.Write([]byte(s))
+}

@@ -27,7 +27,7 @@ type TransactionSettings struct {
 type ICache struct {
 	Data          string
 	Type          CacheDataType
-	ExpirationMap map[string]int64
+	ExpirationMap string
 	StreamData    IStream
 }
 
