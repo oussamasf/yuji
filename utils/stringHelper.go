@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -109,4 +110,57 @@ func IsStreamId(str string) bool {
 	regex := regexp.MustCompile(`^\d+-\d+$`)
 
 	return regex.MatchString(str)
+}
+
+func RefineRawID(rawEntryID, lastID string) (string, error) {
+	if rawEntryID == "*" {
+		return fmt.Sprintf("%d-0", time.Now().UnixMilli()), nil
+	}
+
+	parts := strings.Split(rawEntryID, "-")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid stream ID format")
+	}
+
+	timestamp, sequence := parts[0], parts[1]
+
+	if timestamp == "*" && sequence == "*" {
+		return "", fmt.Errorf("invalid stream ID: both timestamp and sequence are wildcards")
+	}
+
+	if timestamp == "0" && sequence == "0" {
+		return "", fmt.Errorf("stream ID must be greater than 0-0")
+	}
+
+	if sequence == "*" {
+		return generateSequentialID(timestamp, lastID)
+	}
+
+	//? If both parts are specified, return the input as is
+	return rawEntryID, nil
+}
+
+func generateSequentialID(timestamp, lastID string) (string, error) {
+	if lastID == "" {
+		return fmt.Sprintf("%s-0", timestamp), nil
+	}
+
+	lastParts := strings.Split(lastID, "-")
+	if len(lastParts) != 2 {
+		return "", fmt.Errorf("invalid last ID format")
+	}
+
+	if timestamp == lastParts[0] {
+		lastSeq, err := strconv.ParseInt(lastParts[1], 10, 64)
+		if err != nil {
+			return "", fmt.Errorf("invalid sequence in last ID")
+		}
+		return fmt.Sprintf("%s-%d", timestamp, lastSeq+1), nil
+	}
+
+	if timestamp == "0" {
+		return "0-1", nil
+	}
+
+	return fmt.Sprintf("%s-0", timestamp), nil
 }

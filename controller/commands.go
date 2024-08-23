@@ -7,13 +7,14 @@ import (
 	"time"
 
 	configuration "github.com/oussamasf/yuji/config"
+	"github.com/oussamasf/yuji/utils"
 )
 
-func handlePingCmd() string {
+func parsePingArgs() string {
 	return "PONG"
 }
 
-func handleTypeCmd(args []configuration.RESPValue) (string, error) {
+func parseTypeArgs(args []configuration.RESPValue) (string, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERR INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -26,7 +27,7 @@ func handleTypeCmd(args []configuration.RESPValue) (string, error) {
 	return key, nil
 }
 
-func handleIncrCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
+func ParseIncrArgs(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -54,7 +55,7 @@ func handleIncrCmd(args []configuration.RESPValue, cache map[string]configuratio
 }
 
 // ? GET
-func handleGetCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
+func parseGetArgs(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
@@ -68,7 +69,7 @@ func handleGetCmd(args []configuration.RESPValue, cache map[string]configuration
 }
 
 // ? SET
-func handleSetCmd(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
+func parseSetArgs(args []configuration.RESPValue, cache map[string]configuration.ICache) (string, error) {
 	if len(args) < 3 {
 		return "", fmt.Errorf("ERROR: INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -106,7 +107,7 @@ func handleSetCmd(args []configuration.RESPValue, cache map[string]configuration
 	return "OK", nil
 }
 
-func handleConfigCmd(args []configuration.RESPValue, dir string, db string) ([]string, error) {
+func parseConfigArgs(args []configuration.RESPValue, dir string, db string) ([]string, error) {
 	subcommand, ok := args[1].Value.(string)
 	subcommand = strings.ToLower(subcommand)
 	if !ok && subcommand != "get" {
@@ -133,7 +134,7 @@ func handleConfigCmd(args []configuration.RESPValue, dir string, db string) ([]s
 	}
 }
 
-func handleEchoCmd(args []configuration.RESPValue) (string, error) {
+func parseEchoArgs(args []configuration.RESPValue) (string, error) {
 	if len(args) != 2 {
 		return "", fmt.Errorf("ERR INVALID_NUMBER_OF_ARGUMENTS")
 	}
@@ -143,4 +144,138 @@ func handleEchoCmd(args []configuration.RESPValue) (string, error) {
 	}
 	return msg, nil
 
+}
+
+func parseAddStreamArgs(args []configuration.RESPValue) (string, string, map[string]string, error) {
+	keyValue := make(map[string]string)
+
+	if (len(args)%2 == 0) || (len(args) < 3) {
+		return "", "", keyValue, fmt.Errorf("ERR Invalid number of stream command arguments")
+	}
+
+	streamKey, ok := args[1].Value.(string)
+	if !ok {
+		return "", "", keyValue, fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+	}
+
+	newEntryID, ok := args[2].Value.(string)
+	if !ok {
+		return "", "", keyValue, fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+	}
+
+	for i := 3; i < len(args); i += 2 {
+		key, ok := args[i].Value.(string)
+		if !ok {
+			return "", "", keyValue, fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+		}
+
+		value, ok := args[i+1].Value.(string)
+		if !ok {
+			return "", "", keyValue, fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+
+		}
+		keyValue[key] = value
+	}
+
+	return streamKey, newEntryID, keyValue, nil
+}
+
+func parseReadStreamArgs(args []configuration.RESPValue) ([]string, []string, bool, time.Duration, error) {
+	var streamKeywordIndex int
+	var blockTime time.Duration
+	var blockRequested bool
+	streamKeys := []string{}
+	ids := []string{}
+
+	for i, arg := range args {
+		subcommand, _ := arg.Value.(string)
+
+		if strings.ToLower(subcommand) == "block" {
+			blockValueStr, _ := args[i+1].Value.(string)
+			blockTimeInt, err := strconv.ParseInt(blockValueStr, 10, 64)
+			if err != nil {
+				return ids, streamKeys, false, time.Duration(0), fmt.Errorf("ERR Invalid block value")
+			}
+
+			blockTime = time.Duration(blockTimeInt) * time.Millisecond
+			blockRequested = true
+		}
+
+		if strings.ToLower(subcommand) == "streams" {
+			streamKeywordIndex = i
+			break
+		}
+	}
+
+	for i := streamKeywordIndex + 1; i < len(args); i++ {
+		streamKey, ok := args[i].Value.(string)
+		if !ok || utils.IsStreamId(streamKey) {
+			break
+		}
+		streamKeys = append(streamKeys, streamKey)
+	}
+
+	for i := streamKeywordIndex + 1 + len(streamKeys); i < len(args); i++ {
+		id, ok := args[i].Value.(string)
+		if !ok || !utils.IsStreamId(id) {
+			return ids, streamKeys, false, time.Duration(0), fmt.Errorf("ERR INVALID_ID_TYPE")
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, streamKeys, blockRequested, blockTime, nil
+}
+
+func generateReadStreamEntries(id string, entries []configuration.StreamEntry) []string {
+	streamResult := []string{}
+
+	for _, entry := range entries {
+		if utils.CompareIDs(entry.ID, id) > 0 {
+			values := []string{}
+			for key, value := range entry.Values {
+				values = append(values, fmt.Sprintf("$%d\r\n%s\r\n", len(key), key), fmt.Sprintf("$%d\r\n%s\r\n", len(value), value))
+			}
+
+			entryResp := fmt.Sprintf("*%d\r\n$%d\r\n%s\r\n*%d\r\n%s", 2, len(entry.ID), entry.ID, len(values)/2, strings.Join(values, ""))
+			streamResult = append(streamResult, entryResp)
+		}
+	}
+	return streamResult
+
+}
+
+func generateReadStreamResponse(ids []string, streamKeys []string, config *configuration.AppSettings) []string {
+	results := []string{}
+	for i, streamKey := range streamKeys {
+		//? Check if the stream exists
+		stream, ok := config.RedisMap[streamKey]
+		if !ok {
+			continue
+		}
+
+		streamResult := generateReadStreamEntries(ids[i], stream.StreamData.Entries)
+
+		//? Wrap the stream key and its entries
+		if len(streamResult) > 0 {
+			keyResp := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n*%d\r\n%s", len(streamKey), streamKey, len(streamResult), strings.Join(streamResult, ""))
+			results = append(results, keyResp)
+		}
+	}
+	return results
+}
+
+func parseRangeStreamArgs(args []configuration.RESPValue) (string, string, string, error) {
+	if len(args) != 4 {
+		return "", "", "", fmt.Errorf("ERR Invalid number of stream command arguments")
+	}
+
+	streamKey, ok := args[1].Value.(string)
+	if !ok {
+		return "", "", "", fmt.Errorf("ERR INVALID_ARGUMENT_TYPE")
+	}
+
+	startRangeID, _ := args[2].Value.(string)
+	endRangeID, _ := args[3].Value.(string)
+
+	return startRangeID, endRangeID, streamKey, nil
 }

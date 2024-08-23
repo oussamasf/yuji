@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -60,7 +59,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 		switch cmdName {
 
 		case "ping":
-			tcp.WriteRESPSimpleString(conn, handlePingCmd())
+			tcp.WriteRESPSimpleString(conn, parsePingArgs())
 		// case "save":
 		// 	err := utils.SaveRDBFile(0, config)
 		// 	if err != nil {
@@ -69,7 +68,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 		// 	}
 		// 	tcp.WriteRESPSimpleString(conn, "OK")
 		case "type":
-			key, err := handleTypeCmd(args)
+			key, err := parseTypeArgs(args)
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
 			}
@@ -101,7 +100,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 					switch session.Cmd {
 
 					case "set":
-						res, err := handleSetCmd(session.Args, config.RedisMap)
+						res, err := parseSetArgs(session.Args, config.RedisMap)
 						if err != nil {
 							results = append(results, fmt.Sprint(err))
 							continue
@@ -109,7 +108,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						results = append(results, res)
 
 					case "get":
-						res, err := handleGetCmd(session.Args, config.RedisMap)
+						res, err := parseGetArgs(session.Args, config.RedisMap)
 						if err != nil {
 							results = append(results, fmt.Sprint(err))
 							continue
@@ -118,7 +117,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						results = append(results, res)
 
 					case "incr":
-						res, err := handleIncrCmd(session.Args, config.RedisMap)
+						res, err := ParseIncrArgs(session.Args, config.RedisMap)
 						if err != nil {
 							results = append(results, fmt.Sprint(err))
 							continue
@@ -146,7 +145,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				continue
 			} else {
 
-				res, err := handleIncrCmd(args, config.RedisMap)
+				res, err := ParseIncrArgs(args, config.RedisMap)
 
 				if err != nil {
 					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
@@ -166,7 +165,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteArrayResp(conn, keys)
 
 		case "config":
-			res, err := handleConfigCmd(args, config.Dir, config.DBFileName)
+			res, err := parseConfigArgs(args, config.Dir, config.DBFileName)
 
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
@@ -182,7 +181,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteResponse(conn, utils.NewBulkString(infoRes))
 
 		case "echo":
-			res, err := handleEchoCmd(args)
+			res, err := parseEchoArgs(args)
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
 				continue
@@ -218,7 +217,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				txQueue.Session = append(txQueue.Session, session)
 				continue
 			} else {
-				_, err := handleSetCmd(args, config.RedisMap)
+				_, err := parseSetArgs(args, config.RedisMap)
 
 				if err != nil {
 					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
@@ -244,7 +243,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				continue
 			} else {
 
-				res, err := handleGetCmd(args, config.RedisMap)
+				res, err := parseGetArgs(args, config.RedisMap)
 
 				if err != nil {
 					tcp.WriteRESPError(conn, "ERROR: DISCARD without MULTI")
@@ -253,98 +252,37 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 				tcp.WriteRESPBulkString(conn, res)
 
-				handleGetCmd(args, config.RedisMap)
+				parseGetArgs(args, config.RedisMap)
 			}
 
 		case "xadd":
+
+			streamKey, rawEntryID, keyValue, err := parseAddStreamArgs(args)
+
+			if err != nil {
+				tcp.WriteRESPError(conn, err.Error())
+				continue
+			}
+
 			stream := configuration.IStream{
 				Entries: []configuration.StreamEntry{},
 			}
 
-			//? Check number of arguments
-			if (len(args)%2 == 0) || (len(args) < 3) {
-				tcp.WriteRESPError(conn, "ERROR: Invalid number of stream command arguments")
+			newEntryID, err := utils.RefineRawID(rawEntryID, stream.LastID)
+			if err != nil {
+				tcp.WriteRESPError(conn, err.Error())
 				continue
 			}
 
-			//? Cast stream key into string
-			streamKey, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-
-			//? Check if the stream already exists in RedisMap
-			if existingCache, found := config.RedisMap[streamKey]; found && existingCache.Type == configuration.Stream {
-				stream = existingCache.StreamData
-			}
-
-			//? Cast stream ID into string
-			newEntryID, ok := args[2].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
-			if newEntryID == "*" {
-				newEntryID = fmt.Sprintf("%d-%d", time.Now().UnixMilli(), 0)
-			} else {
-				sequence := strings.Split(newEntryID, "-")
-
-				if len(sequence) != 2 {
-					tcp.WriteRESPError(conn, "ERROR: Invalid stream id")
-					continue
-				}
-
-				if (sequence[0] == "*") && (sequence[1] == "*") {
-					tcp.WriteRESPError(conn, "ERR Invalid stream id")
-					continue
-				}
-
-				if (sequence[0] == "0") && (sequence[1] == "0") {
-					tcp.WriteRESPError(conn, "ERR The ID specified in XADD must be greater than 0-0")
-					continue
-				}
-
-				if sequence[1] == "*" {
-					lastIdSequence := strings.Split(stream.LastID, "-")
-					if stream.LastID != "" && (sequence[0] == lastIdSequence[0]) {
-						parsedSeq, err := strconv.ParseInt(lastIdSequence[1], 10, 64)
-
-						if err != nil {
-							tcp.WriteRESPError(conn, "ERR Invalid stream id")
-							continue
-						}
-
-						newEntryID = fmt.Sprintf("%s-%d", sequence[0], parsedSeq+1)
-					} else {
-						if sequence[0] == "0" {
-							newEntryID = fmt.Sprintf("%s-%d", sequence[0], 1)
-						} else {
-							newEntryID = fmt.Sprintf("%s-%d", sequence[0], 0)
-						}
-					}
-				}
-			}
 			// ? Compare the new ID with the LastID in the stream
 			if stream.LastID != "" && utils.CompareIDs(stream.LastID, newEntryID) >= 0 {
 				tcp.WriteRESPError(conn, "ERROR: ERR The ID specified in XADD is equal or smaller than the target stream top item")
 				continue
 			}
 
-			//? Cast key-value pairs of the stream into a map[string]string
-			keyValue := make(map[string]string)
-			for i := 3; i < len(args); i += 2 {
-				key, ok := args[i].Value.(string)
-				if !ok {
-					tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-					continue
-				}
-				value, ok := args[i+1].Value.(string)
-				if !ok {
-					tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-					continue
-				}
-				keyValue[key] = value
+			//? Check if the stream already exists in RedisMap
+			if existingCache, found := config.RedisMap[streamKey]; found && existingCache.Type == configuration.Stream {
+				stream = existingCache.StreamData
 			}
 
 			newEntry := configuration.StreamEntry{
@@ -366,10 +304,10 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				StreamData: stream,
 			}
 
-			// Check if any blocked XRANGE requests should be unblocked
+			//? Check if any blocked XRead requests should be unblocked
 			if blockedRequests, found := blockedStreamRequests[streamKey]; found {
 				for _, request := range blockedRequests {
-					// Check if the new entry's ID is greater than the ID requested
+					//? Check if the new entry's ID is greater than the ID requested
 					for _, requestedID := range request.Ids {
 						if utils.CompareIDs(newEntryID, requestedID) > 0 {
 							go func(conn net.Conn, streamKey, entryID string, entry configuration.StreamEntry) {
@@ -393,91 +331,22 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 		case "xread":
 
-			var streamKeywordIndex int
-			var blockTime time.Duration
-			var blockRequested bool
-
-			for i, arg := range args {
-				subcommand, _ := arg.Value.(string)
-
-				if strings.ToLower(subcommand) == "block" {
-					blockValueStr, _ := args[i+1].Value.(string)
-					blockTimeInt, err := strconv.ParseInt(blockValueStr, 10, 64)
-					if err != nil {
-						tcp.WriteRESPError(conn, "ERR Invalid block value")
-						return
-					}
-
-					blockTime = time.Duration(blockTimeInt) * time.Millisecond
-					blockRequested = true
-				}
-
-				if strings.ToLower(subcommand) == "streams" {
-					streamKeywordIndex = i
-					break
-				}
+			ids, streamKeys, blockRequested, blockTime, nil := parseReadStreamArgs(args)
+			if err != nil {
+				tcp.WriteRESPError(conn, "Err error while parsing arguments")
+				continue
 			}
 
-			// Get stream keys
-			streamKeys := []string{}
-			for i := streamKeywordIndex + 1; i < len(args); i++ {
-				streamKey, ok := args[i].Value.(string)
-				if !ok || utils.IsStreamId(streamKey) {
-					break
-				}
-				streamKeys = append(streamKeys, streamKey)
-			}
-
-			// Get stream ids
-			ids := []string{}
-			for i := streamKeywordIndex + 1 + len(streamKeys); i < len(args); i++ {
-				id, ok := args[i].Value.(string)
-				if !ok || !utils.IsStreamId(id) {
-					tcp.WriteRESPError(conn, "ERROR: INVALID_ID_TYPE")
-					return
-				}
-				ids = append(ids, id)
-			}
-
-			// Ensure, have the same number of keys and IDs
+			//? Ensure, have the same number of keys and IDs
 			if len(streamKeys) != len(ids) {
 				tcp.WriteRESPError(conn, "ERROR: MISMATCHED_KEYS_AND_IDS")
-				return
+				continue
 			}
 
-			results := []string{}
-			for i, streamKey := range streamKeys {
-				// Check if the stream exists
-				stream, ok := config.RedisMap[streamKey]
-				if !ok {
-					continue
-				}
+			results := generateReadStreamResponse(ids, streamKeys, config)
 
-				entries := stream.StreamData.Entries
-				id := ids[i]
-
-				streamResult := []string{}
-				for _, entry := range entries {
-					if utils.CompareIDs(entry.ID, id) > 0 {
-						values := []string{}
-						for key, value := range entry.Values {
-							values = append(values, fmt.Sprintf("$%d\r\n%s\r\n", len(key), key), fmt.Sprintf("$%d\r\n%s\r\n", len(value), value))
-						}
-
-						entryResp := fmt.Sprintf("*%d\r\n$%d\r\n%s\r\n*%d\r\n%s", 2, len(entry.ID), entry.ID, len(values)/2, strings.Join(values, ""))
-						streamResult = append(streamResult, entryResp)
-					}
-				}
-
-				// Wrap the stream key and its entries
-				if len(streamResult) > 0 {
-					keyResp := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n*%d\r\n%s", len(streamKey), streamKey, len(streamResult), strings.Join(streamResult, ""))
-					results = append(results, keyResp)
-				}
-			}
-
+			//? If results are found, send them immediately
 			if len(results) > 0 {
-				//? If results are found, send them immediately
 				var builder strings.Builder
 				builder.WriteString(fmt.Sprintf("*%d\r\n", len(results)))
 				for _, result := range results {
@@ -485,8 +354,10 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				}
 
 				conn.Write([]byte(builder.String()))
-			} else if blockRequested {
-				//? Handle blocking behavior
+			}
+
+			//? Handle blocking behavior
+			if blockRequested {
 				blockedRequest := &BlockedRequest{
 					Conn:       conn,
 					StreamKeys: streamKeys,
@@ -506,7 +377,9 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 							if requests, found := blockedStreamRequests[streamKey]; found {
 								for i, req := range requests {
 									if req == blockedRequest {
-										tcp.WriteRESPError(conn, "BLOCK timeout expired")
+										if len(results) == 0 {
+											conn.Write([]byte("$-1\r\n"))
+										}
 										blockedStreamRequests[streamKey] = append(requests[:i], requests[i+1:]...)
 										break
 									}
@@ -518,42 +391,35 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 					go func() {
 						time.Sleep(time.Duration(1<<63 - 1))
 					}()
-
 				}
 			} else {
-				conn.Write([]byte("*0\r\n"))
+				conn.Write([]byte("$-1\r\n"))
 			}
 
 		case "xrange":
-			if len(args) != 4 {
-				tcp.WriteRESPError(conn, "ERROR: Invalid number of stream command arguments")
+			startRangeID, endRangeID, streamKey, err := parseRangeStreamArgs(args)
+			if err != nil {
+				tcp.WriteResponse(conn, err.Error())
 				continue
 			}
 
-			streamKey, ok := args[1].Value.(string)
-			if !ok {
-				tcp.WriteRESPError(conn, "ERROR: INVALID_ARGUMENT_TYPE")
-				continue
-			}
 			stream, ok := config.RedisMap[streamKey]
-
 			if !ok {
 				tcp.WriteResponse(conn, "")
 				continue
 			}
+
 			entries := stream.StreamData.Entries
 
-			id1, _ := args[2].Value.(string)
-			id2, _ := args[3].Value.(string)
-
-			if utils.CompareIDs(id1, id2) > 0 {
+			if utils.CompareIDs(startRangeID, endRangeID) > 0 {
 				tcp.WriteRESPError(conn, "ERROR invalid range id")
 				continue
 			}
+
 			results := []string{}
 			for _, entry := range entries {
-				if id2 == "+" {
-					if utils.CompareIDs(entry.ID, id1) >= 0 {
+				if endRangeID == "+" {
+					if utils.CompareIDs(entry.ID, startRangeID) >= 0 {
 						values := []string{}
 						for key, value := range entry.Values {
 							values = append(values, key, value)
@@ -565,8 +431,9 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						results = append(results, valueResp)
 					}
 					continue
-				} else if id1 == "-" {
-					if utils.CompareIDs(entry.ID, id2) <= 0 {
+				}
+				if startRangeID == "-" {
+					if utils.CompareIDs(entry.ID, endRangeID) <= 0 {
 						values := []string{}
 						for key, value := range entry.Values {
 							values = append(values, key, value)
@@ -578,7 +445,8 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 						results = append(results, valueResp)
 					}
 					continue
-				} else if utils.CompareIDs(entry.ID, id1) >= 0 && utils.CompareIDs(entry.ID, id2) <= 0 {
+				}
+				if utils.CompareIDs(entry.ID, startRangeID) >= 0 && utils.CompareIDs(entry.ID, endRangeID) <= 0 {
 					values := []string{}
 					for key, value := range entry.Values {
 						values = append(values, key, value)
