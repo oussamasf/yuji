@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	configuration "github.com/oussamasf/yuji/config"
 	"github.com/oussamasf/yuji/service/tcp"
 	"github.com/oussamasf/yuji/utils"
@@ -60,13 +61,13 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 		case "ping":
 			tcp.WriteRESPSimpleString(conn, parsePingArgs())
-		// case "save":
-		// 	err := utils.SaveRDBFile(0, config)
-		// 	if err != nil {
-		// 		tcp.WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
-		// 		continue
-		// 	}
-		// 	tcp.WriteRESPSimpleString(conn, "OK")
+		case "save":
+			err := utils.SaveRDBFile(config)
+			if err != nil {
+				tcp.WriteRESPError(conn, "ERROR: COULD_NOT_SAVE_FILE")
+				continue
+			}
+			tcp.WriteRESPSimpleString(conn, "OK")
 		case "type":
 			key, err := parseTypeArgs(args)
 			if err != nil {
@@ -192,12 +193,11 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 			tcp.WriteRESPSimpleString(conn, "OK")
 
 		case "psync":
-			hardCoddedId := "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+			serverID := uuid.New()
 
-			tcp.WriteRESPSimpleString(conn, fmt.Sprintf("FULLRESYNC %s 0", hardCoddedId))
+			tcp.WriteRESPSimpleString(conn, fmt.Sprintf("FULLRESYNC %s 0", serverID))
 			time.Sleep(100 * time.Millisecond)
 
-			//TODO send bulk string of hard coded empty RDB file after full resync
 			emptyRDB := "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
 
 			tcp.WriteRESPBulkString(conn, emptyRDB)
