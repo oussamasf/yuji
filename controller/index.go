@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -258,7 +257,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 		case "xadd":
 
-			streamKey, newEntryID, keyValue, err := handleAddStreamCmd(args)
+			streamKey, rawEntryID, keyValue, err := handleAddStreamCmd(args)
 
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
@@ -269,7 +268,7 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				Entries: []configuration.StreamEntry{},
 			}
 
-			newEntryID, err = utils.GenerateStreamID(newEntryID, stream.LastID)
+			newEntryID, err := utils.RefineRawID(rawEntryID, stream.LastID)
 			if err != nil {
 				tcp.WriteRESPError(conn, err.Error())
 				continue
@@ -332,91 +331,22 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 
 		case "xread":
 
-			var streamKeywordIndex int
-			var blockTime time.Duration
-			var blockRequested bool
-
-			for i, arg := range args {
-				subcommand, _ := arg.Value.(string)
-
-				if strings.ToLower(subcommand) == "block" {
-					blockValueStr, _ := args[i+1].Value.(string)
-					blockTimeInt, err := strconv.ParseInt(blockValueStr, 10, 64)
-					if err != nil {
-						tcp.WriteRESPError(conn, "ERR Invalid block value")
-						return
-					}
-
-					blockTime = time.Duration(blockTimeInt) * time.Millisecond
-					blockRequested = true
-				}
-
-				if strings.ToLower(subcommand) == "streams" {
-					streamKeywordIndex = i
-					break
-				}
+			ids, streamKeys, blockRequested, blockTime, nil := parseReadStreamArgs(args)
+			if err != nil {
+				tcp.WriteRESPError(conn, err.Error())
+				continue
 			}
 
-			// Get stream keys
-			streamKeys := []string{}
-			for i := streamKeywordIndex + 1; i < len(args); i++ {
-				streamKey, ok := args[i].Value.(string)
-				if !ok || utils.IsStreamId(streamKey) {
-					break
-				}
-				streamKeys = append(streamKeys, streamKey)
-			}
-
-			// Get stream ids
-			ids := []string{}
-			for i := streamKeywordIndex + 1 + len(streamKeys); i < len(args); i++ {
-				id, ok := args[i].Value.(string)
-				if !ok || !utils.IsStreamId(id) {
-					tcp.WriteRESPError(conn, "ERROR: INVALID_ID_TYPE")
-					return
-				}
-				ids = append(ids, id)
-			}
-
-			// Ensure, have the same number of keys and IDs
+			//? Ensure, have the same number of keys and IDs
 			if len(streamKeys) != len(ids) {
 				tcp.WriteRESPError(conn, "ERROR: MISMATCHED_KEYS_AND_IDS")
-				return
+				continue
 			}
 
-			results := []string{}
-			for i, streamKey := range streamKeys {
-				// Check if the stream exists
-				stream, ok := config.RedisMap[streamKey]
-				if !ok {
-					continue
-				}
+			results := generateReadStreamResponse(ids, streamKeys, config)
 
-				entries := stream.StreamData.Entries
-				id := ids[i]
-
-				streamResult := []string{}
-				for _, entry := range entries {
-					if utils.CompareIDs(entry.ID, id) > 0 {
-						values := []string{}
-						for key, value := range entry.Values {
-							values = append(values, fmt.Sprintf("$%d\r\n%s\r\n", len(key), key), fmt.Sprintf("$%d\r\n%s\r\n", len(value), value))
-						}
-
-						entryResp := fmt.Sprintf("*%d\r\n$%d\r\n%s\r\n*%d\r\n%s", 2, len(entry.ID), entry.ID, len(values)/2, strings.Join(values, ""))
-						streamResult = append(streamResult, entryResp)
-					}
-				}
-
-				// Wrap the stream key and its entries
-				if len(streamResult) > 0 {
-					keyResp := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n*%d\r\n%s", len(streamKey), streamKey, len(streamResult), strings.Join(streamResult, ""))
-					results = append(results, keyResp)
-				}
-			}
-
+			//? If results are found, send them immediately
 			if len(results) > 0 {
-				//? If results are found, send them immediately
 				var builder strings.Builder
 				builder.WriteString(fmt.Sprintf("*%d\r\n", len(results)))
 				for _, result := range results {
@@ -424,8 +354,10 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 				}
 
 				conn.Write([]byte(builder.String()))
-			} else if blockRequested {
-				//? Handle blocking behavior
+			}
+
+			//? Handle blocking behavior
+			if blockRequested {
 				blockedRequest := &BlockedRequest{
 					Conn:       conn,
 					StreamKeys: streamKeys,
@@ -457,7 +389,6 @@ func HandleConnection(conn net.Conn, config *configuration.AppSettings) {
 					go func() {
 						time.Sleep(time.Duration(1<<63 - 1))
 					}()
-
 				}
 			} else {
 				conn.Write([]byte("*0\r\n"))

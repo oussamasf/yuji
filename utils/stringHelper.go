@@ -112,12 +112,12 @@ func IsStreamId(str string) bool {
 	return regex.MatchString(str)
 }
 
-func GenerateStreamID(entryID, lastID string) (string, error) {
-	if entryID == "*" {
+func RefineRawID(rawEntryID, lastID string) (string, error) {
+	if rawEntryID == "*" {
 		return fmt.Sprintf("%d-0", time.Now().UnixMilli()), nil
 	}
 
-	parts := strings.Split(entryID, "-")
+	parts := strings.Split(rawEntryID, "-")
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid stream ID format")
 	}
@@ -136,8 +136,8 @@ func GenerateStreamID(entryID, lastID string) (string, error) {
 		return generateSequentialID(timestamp, lastID)
 	}
 
-	// If both parts are specified, return the input as is
-	return entryID, nil
+	//? If both parts are specified, return the input as is
+	return rawEntryID, nil
 }
 
 func generateSequentialID(timestamp, lastID string) (string, error) {

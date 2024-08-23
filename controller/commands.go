@@ -7,6 +7,7 @@ import (
 	"time"
 
 	configuration "github.com/oussamasf/yuji/config"
+	"github.com/oussamasf/yuji/utils"
 )
 
 func handlePingCmd() string {
@@ -177,4 +178,88 @@ func handleAddStreamCmd(args []configuration.RESPValue) (string, string, map[str
 	}
 
 	return streamKey, newEntryID, keyValue, nil
+}
+
+func parseReadStreamArgs(args []configuration.RESPValue) ([]string, []string, bool, time.Duration, error) {
+	var streamKeywordIndex int
+	var blockTime time.Duration
+	var blockRequested bool
+	streamKeys := []string{}
+	ids := []string{}
+
+	for i, arg := range args {
+		subcommand, _ := arg.Value.(string)
+
+		if strings.ToLower(subcommand) == "block" {
+			blockValueStr, _ := args[i+1].Value.(string)
+			blockTimeInt, err := strconv.ParseInt(blockValueStr, 10, 64)
+			if err != nil {
+				return ids, streamKeys, false, time.Duration(0), fmt.Errorf("ERR Invalid block value")
+			}
+
+			blockTime = time.Duration(blockTimeInt) * time.Millisecond
+			blockRequested = true
+		}
+
+		if strings.ToLower(subcommand) == "streams" {
+			streamKeywordIndex = i
+			break
+		}
+	}
+
+	for i := streamKeywordIndex + 1; i < len(args); i++ {
+		streamKey, ok := args[i].Value.(string)
+		if !ok || utils.IsStreamId(streamKey) {
+			break
+		}
+		streamKeys = append(streamKeys, streamKey)
+	}
+
+	for i := streamKeywordIndex + 1 + len(streamKeys); i < len(args); i++ {
+		id, ok := args[i].Value.(string)
+		if !ok || !utils.IsStreamId(id) {
+			return ids, streamKeys, false, time.Duration(0), fmt.Errorf("ERR INVALID_ID_TYPE")
+		}
+		ids = append(ids, id)
+	}
+
+	return ids, streamKeys, blockRequested, blockTime, nil
+}
+
+func generateReadStreamEntries(id string, entries []configuration.StreamEntry) []string {
+	streamResult := []string{}
+
+	for _, entry := range entries {
+		if utils.CompareIDs(entry.ID, id) > 0 {
+			values := []string{}
+			for key, value := range entry.Values {
+				values = append(values, fmt.Sprintf("$%d\r\n%s\r\n", len(key), key), fmt.Sprintf("$%d\r\n%s\r\n", len(value), value))
+			}
+
+			entryResp := fmt.Sprintf("*%d\r\n$%d\r\n%s\r\n*%d\r\n%s", 2, len(entry.ID), entry.ID, len(values)/2, strings.Join(values, ""))
+			streamResult = append(streamResult, entryResp)
+		}
+	}
+	return streamResult
+
+}
+
+func generateReadStreamResponse(ids []string, streamKeys []string, config *configuration.AppSettings) []string {
+	results := []string{}
+	for i, streamKey := range streamKeys {
+		//? Check if the stream exists
+		stream, ok := config.RedisMap[streamKey]
+		if !ok {
+			continue
+		}
+
+		streamResult := generateReadStreamEntries(ids[i], stream.StreamData.Entries)
+
+		//? Wrap the stream key and its entries
+		if len(streamResult) > 0 {
+			keyResp := fmt.Sprintf("*2\r\n$%d\r\n%s\r\n*%d\r\n%s", len(streamKey), streamKey, len(streamResult), strings.Join(streamResult, ""))
+			results = append(results, keyResp)
+		}
+	}
+	return results
 }
